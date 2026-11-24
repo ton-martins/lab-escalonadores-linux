@@ -1,0 +1,4 @@
+escalonador,experimento,kernel,inicio,fim,duracao_segundos,vcpu,processo,pid,tipo_carga,nice,cpu_media,espera_media
+cfs,exp3,6.5.11-060511-generic,2026-11-20T22:24:28-03:00,2026-11-20T22:24:38-03:00,10,0,A,8156,cpu_bound,0,45.02,54.85
+cfs,exp3,6.5.11-060511-generic,2026-11-20T22:24:28-03:00,2026-11-20T22:24:38-03:00,10,0,B,8157,cpu_bound,0,45.27,54.85
+cfs,exp3,6.5.11-060511-generic,2026-11-20T22:24:28-03:00,2026-11-20T22:24:38-03:00,10,0,C,8158,io_bound_simulated,0,9.70,1.87

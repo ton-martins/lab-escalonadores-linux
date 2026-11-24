@@ -1,0 +1,9 @@
+{
+  "status": "concluida",
+  "execucao_id": "20261120_222428",
+  "experimento": "exp3",
+  "escalonador": "cfs",
+  "kernel": "6.5.11-060511-generic",
+  "iniciado_em": "2026-11-20T22:24:28-03:00",
+  "atualizado_em": "2026-11-20T22:24:38-03:00"
+}

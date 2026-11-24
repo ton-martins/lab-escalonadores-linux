@@ -1,0 +1,37 @@
+Linux 6.5.11-060511-generic (lab-escalonamento) 	11/20/26 	_x86_64_	(4 CPU)
+
+22:24:12      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
+22:24:13     1000      8047   91.00    0.00    0.00   10.00   91.00     0  cpu_bound_worke
+22:24:13     1000      8048   10.00    0.00    0.00   81.00   10.00     0  cpu_bound_worke
+
+22:24:13      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
+22:24:14     1000      8047   89.22    0.00    0.00    9.80   89.22     0  cpu_bound_worke
+22:24:14     1000      8048    9.80    0.00    0.00   99.02    9.80     0  cpu_bound_worke
+
+22:24:14      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
+22:24:15     1000      8047   91.51    0.00    0.00    9.43   91.51     0  cpu_bound_worke
+22:24:15     1000      8048    9.43    0.00    0.00   85.85    9.43     0  cpu_bound_worke
+
+22:24:15      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
+22:24:16     1000      8047   89.62    0.00    0.00    9.43   89.62     0  cpu_bound_worke
+22:24:16     1000      8048    9.43    0.00    0.00   85.85    9.43     0  cpu_bound_worke
+
+22:24:16      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
+22:24:17     1000      8047   91.09    0.00    0.00    9.90   91.09     0  cpu_bound_worke
+22:24:17     1000      8048    9.90    0.00    0.00  101.98    9.90     0  cpu_bound_worke
+
+22:24:17      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
+22:24:18     1000      8047   90.00    0.00    0.00   10.00   90.00     0  cpu_bound_worke
+22:24:18     1000      8048   10.00    0.00    0.00   90.00   10.00     0  cpu_bound_worke
+
+22:24:18      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
+22:24:19     1000      8047   89.32    0.00    0.00    9.71   89.32     0  cpu_bound_worke
+22:24:19     1000      8048    9.71    0.00    0.00   86.41    9.71     0  cpu_bound_worke
+
+22:24:19      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
+22:24:20     1000      8047   91.00    0.00    0.00   10.00   91.00     0  cpu_bound_worke
+22:24:20     1000      8048   10.00    0.00    0.00   94.00   10.00     0  cpu_bound_worke
+
+Average:      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
+Average:     1000      8047   90.34    0.00    0.00    9.78   90.34     -  cpu_bound_worke
+Average:     1000      8048    9.78    0.00    0.00   90.46    9.78     -  cpu_bound_worke

@@ -1,0 +1,13 @@
+
+
+=== Processo periódico iniciado ===
+Nome do Processo: C
+PID do Processo: 8158
+Duração Alvo: 10 segundos.
+Período do Ciclo: 100 milissegundos.
+Trabalho por Ciclo: 10 milissegundos.
+Pausa por Ciclo: 90 milissegundos.
+=== Processo periódico finalizado ===
+Tempo real decorrido: 10.0652 segundos
+Ciclos realizados: 97
+Total de iterações: 955449344

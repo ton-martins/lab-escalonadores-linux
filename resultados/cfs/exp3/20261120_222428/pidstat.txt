@@ -1,0 +1,46 @@
+Linux 6.5.11-060511-generic (lab-escalonamento) 	11/20/26 	_x86_64_	(4 CPU)
+
+22:24:28      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
+22:24:29     1000      8156   45.00    0.00    0.00   54.00   45.00     0  cpu_bound_worke
+22:24:29     1000      8157   45.00    0.00    0.00   55.00   45.00     0  cpu_bound_worke
+22:24:29     1000      8158   10.00    0.00    0.00    2.00   10.00     0  io_bound_simula
+
+22:24:29      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
+22:24:30     1000      8156   45.00    0.00    0.00   56.00   45.00     0  cpu_bound_worke
+22:24:30     1000      8157   45.00    0.00    0.00   56.00   45.00     0  cpu_bound_worke
+22:24:30     1000      8158   10.00    0.00    0.00    0.00   10.00     0  io_bound_simula
+
+22:24:30      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
+22:24:31     1000      8156   44.55    0.00    0.00   54.46   44.55     0  cpu_bound_worke
+22:24:31     1000      8157   45.54    0.00    0.00   54.46   45.54     0  cpu_bound_worke
+22:24:31     1000      8158    9.90    0.00    0.00    1.98    9.90     0  io_bound_simula
+
+22:24:31      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
+22:24:32     1000      8156   46.00    0.00    0.00   56.00   46.00     0  cpu_bound_worke
+22:24:32     1000      8157   46.00    0.00    0.00   54.00   46.00     0  cpu_bound_worke
+22:24:32     1000      8158    8.00    0.00    0.00    4.00    8.00     0  io_bound_simula
+
+22:24:32      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
+22:24:33     1000      8156   45.00    0.00    0.00   54.00   45.00     0  cpu_bound_worke
+22:24:33     1000      8157   45.00    0.00    0.00   56.00   45.00     0  cpu_bound_worke
+22:24:33     1000      8158   10.00    0.00    0.00    2.00   10.00     0  io_bound_simula
+
+22:24:33      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
+22:24:34     1000      8156   44.55    0.00    0.00   55.45   44.55     0  cpu_bound_worke
+22:24:34     1000      8157   44.55    0.00    0.00   52.48   44.55     0  cpu_bound_worke
+22:24:34     1000      8158    9.90    0.99    0.00    1.98   10.89     0  io_bound_simula
+
+22:24:34      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
+22:24:35     1000      8156   45.00    0.00    0.00   55.00   45.00     0  cpu_bound_worke
+22:24:35     1000      8157   46.00    0.00    0.00   55.00   46.00     0  cpu_bound_worke
+22:24:35     1000      8158    9.00    0.00    0.00    2.00    9.00     0  io_bound_simula
+
+22:24:35      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
+22:24:36     1000      8156   45.10    0.00    0.00   53.92   45.10     0  cpu_bound_worke
+22:24:36     1000      8157   45.10    0.00    0.00   55.88   45.10     0  cpu_bound_worke
+22:24:36     1000      8158    9.80    0.00    0.00    0.98    9.80     0  io_bound_simula
+
+Average:      UID       PID    %usr %system  %guest   %wait    %CPU   CPU  Command
+Average:     1000      8156   45.02    0.00    0.00   54.85   45.02     -  cpu_bound_worke
+Average:     1000      8157   45.27    0.00    0.00   54.85   45.27     -  cpu_bound_worke
+Average:     1000      8158    9.58    0.12    0.00    1.87    9.70     -  io_bound_simula

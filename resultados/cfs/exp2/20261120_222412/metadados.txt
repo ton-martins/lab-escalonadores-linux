@@ -1,0 +1,15 @@
+execucao_id=20261120_222412
+experimento=exp2
+escalonador=cfs
+inicio=2026-11-20T22:24:12-03:00
+kernel=6.5.11-060511-generic
+duracao_segundos=10
+vcpu_alvo=0
+processo_a=cpu_bound
+processo_b=cpu_bound
+nice_a=0
+nice_b=10
+vcpus_disponiveis=4
+pid_a=8047
+pid_b=8048
+fim=2026-11-20T22:24:22-03:00

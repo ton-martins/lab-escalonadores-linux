@@ -1,0 +1,130 @@
+@import "tailwindcss";
+
+:root {
+  /* Tema global */
+  --background-color: #121212;
+  --accent-color: #181818;
+  --accent-hover-color: #242424;
+  --surface-muted-color: #0f0f0f;
+  --border-color: #2a2a2a;
+
+  /* Textos */
+  --text-primary-color: #ffffff;
+  --text-secondary-color: #b3b3b3;
+  --text-muted-color: #777777;
+
+  /* Destaque global */
+  --highlight-color: #1ed760;
+  --highlight-hover-color: #1fdf64;
+  --highlight-soft-color: rgba(30, 215, 96, 0.14);
+
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+    "Segoe UI", sans-serif;
+  color: var(--text-primary-color);
+  background: var(--background-color);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  background: var(--background-color);
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+  background:
+    radial-gradient(
+      circle at 50% -30%,
+      rgba(42, 42, 42, 0.75),
+      transparent 42rem
+    ),
+    var(--background-color);
+  color: var(--text-primary-color);
+}
+
+button,
+select {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+h1,
+h2,
+h3,
+h4 {
+  color: var(--text-primary-color);
+}
+
+/* Texto pequeno que introduz uma seção ou card */
+.eyebrow {
+  color: var(--highlight-color);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Elementos visuais genéricos reutilizáveis */
+.app-shell {
+  min-height: 100vh;
+  background: var(--background-color);
+  color: var(--text-primary-color);
+}
+
+.app-panel {
+  border: 1px solid var(--border-color);
+  border-radius: 1rem;
+  background: var(--accent-color);
+}
+
+.app-panel-muted {
+  border: 1px solid var(--border-color);
+  border-radius: 0.75rem;
+  background: var(--surface-muted-color);
+}
+
+.app-panel-hover {
+  transition:
+    background-color 160ms ease,
+    border-color 160ms ease;
+}
+
+.app-panel-hover:hover {
+  border-color: #3a3a3a;
+  background: var(--accent-hover-color);
+}
+
+.text-primary {
+  color: var(--text-primary-color);
+}
+
+.text-secondary {
+  color: var(--text-secondary-color);
+}
+
+.text-muted {
+  color: var(--text-muted-color);
+}
+
+.text-highlight {
+  color: var(--highlight-color);
+}
+
+#app {
+  min-height: 100vh;
+}

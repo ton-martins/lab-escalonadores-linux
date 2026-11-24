@@ -1,0 +1,18 @@
+# Dependências instaladas localmente
+node_modules/
+
+# Build do Vite
+dist/
+
+# Binários compilados pelos scripts
+/bin/
+
+# Variáveis locais e possíveis segredos
+.env
+.env.*
+!.env.example
+
+# Arquivos de editor e sistema
+.vscode/
+.DS_Store
+Thumbs.db
