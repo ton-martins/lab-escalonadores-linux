@@ -1,0 +1,2 @@
+pid 5503's current affinity list: 0
+pid 5504's current affinity list: 0

@@ -1,0 +1,4 @@
+escalonador,experimento,kernel,inicio,fim,duracao_segundos,vcpu,processo,pid,tipo_carga,nice,cpu_media,espera_media
+eevdf,exp3,7.0.0-43-generic,2026-11-23T22:47:53-03:00,2026-11-23T22:48:04-03:00,10,0,A,5638,cpu_bound,0,47.39,52.61
+eevdf,exp3,7.0.0-43-generic,2026-11-23T22:47:53-03:00,2026-11-23T22:48:04-03:00,10,0,B,5639,cpu_bound,0,47.27,52.61
+eevdf,exp3,7.0.0-43-generic,2026-11-23T22:47:53-03:00,2026-11-23T22:48:04-03:00,10,0,C,5640,io_bound_simulated,0,5.21,9.70
