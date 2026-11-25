@@ -1,4 +1,4 @@
-#define _POSIX_C_SOURCE 200809L
+#define _POSIX_C_SOURCE 200809L // Habilita as interfaces do padrão POSIX.1-2008 nos cabeçalhos.
 
 #include <stdio.h>
 #include <stdlib.h>

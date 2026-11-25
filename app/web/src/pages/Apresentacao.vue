@@ -154,6 +154,16 @@ const simulacoes = reactive({
   cfs: { tempo: 0, tarefas: [], historico: [], ultimo: null, ativa: false, velocidade: 700 },
   eevdf: { tempo: 0, tarefas: [], historico: [], ultimo: null, ativa: false, velocidade: 700 },
 });
+const processoDetalhadoCfs = ref("A");
+const tarefaDetalhadaCfs = computed(() =>
+  simulacoes.cfs.tarefas.find((tarefa) => tarefa.nome === processoDetalhadoCfs.value),
+);
+const proximaTarefaCfs = computed(() => escolherTarefa("cfs"));
+const processoDetalhadoEevdf = ref("A");
+const tarefaDetalhadaEevdf = computed(() =>
+  simulacoes.eevdf.tarefas.find((tarefa) => tarefa.nome === processoDetalhadoEevdf.value),
+);
+const proximaTarefaEevdf = computed(() => escolherTarefa("eevdf"));
 const temporizadoresSimulacao = { cfs: undefined, eevdf: undefined };
 const EPSILON = 1e-9;
 
@@ -1454,9 +1464,9 @@ free(vetor);</code></pre>
                       </select>
                     </td>
                     <td>{{ tarefa.peso }}</td>
-                    <td>{{ formatarNumero(parcelaIdeal('cfs', tarefa) * 100) }}%</td>
+                    <td>{{ formatarNumero(parcelaIdeal('cfs', tarefa) * 100, 4) }}%</td>
                     <td>{{ tarefa.cpu }} ms</td>
-                    <td>{{ formatarNumero(tarefa.vruntime) }} ms</td>
+                    <td>{{ formatarNumero(tarefa.vruntime, 4) }} ms</td>
                   </tr>
                 </tbody>
               </table>
@@ -1469,8 +1479,8 @@ free(vetor);</code></pre>
               <span v-if="escolherTarefa('cfs')">Próxima escolha simplificada: <strong>{{ escolherTarefa('cfs').nome }}</strong> · menor vruntime</span>
               <span v-if="simulacoes.cfs.ultimo">
                 Último passo: {{ simulacoes.cfs.ultimo.nome }} ·
-                {{ formatarNumero(simulacoes.cfs.ultimo.anterior) }} + {{ formatarNumero(simulacoes.cfs.ultimo.incremento) }}
-                = {{ formatarNumero(simulacoes.cfs.ultimo.atual) }} ms virtuais
+                {{ formatarNumero(simulacoes.cfs.ultimo.anterior, 4) }} + {{ formatarNumero(simulacoes.cfs.ultimo.incremento, 4) }}
+                = {{ formatarNumero(simulacoes.cfs.ultimo.atual, 4) }} ms virtuais
               </span>
             </div>
             <div class="simulator-timeline" aria-label="Últimos 30 passos">
@@ -1487,6 +1497,69 @@ free(vetor);</code></pre>
                 </select>
               </label>
             </div>
+            <section class="calculos-simulacao" aria-labelledby="titulo-calculos-cfs">
+              <div class="calculos-simulacao-header">
+                <div>
+                  <span class="panel-label">DETALHAMENTO DO MODELO</span>
+                  <h2 id="titulo-calculos-cfs">Entenda os cálculos</h2>
+                </div>
+                <label>
+                  Processo
+                  <select v-model="processoDetalhadoCfs">
+                    <option v-for="tarefa in simulacoes.cfs.tarefas" :key="tarefa.nome" :value="tarefa.nome">{{ tarefa.nome }}</option>
+                  </select>
+                </label>
+              </div>
+
+              <div v-if="tarefaDetalhadaCfs" class="calculos-simulacao-layout">
+                <div class="calculos-simulacao-list">
+                  <p>
+                    <strong>1. Nice e peso:</strong>
+                    nice {{ tarefaDetalhadaCfs.nice }} → peso {{ tarefaDetalhadaCfs.peso }}
+                  </p>
+                  <p>
+                    <strong>2. Parcela ideal:</strong>
+                    {{ tarefaDetalhadaCfs.peso }} / {{ pesoTotal('cfs') }} × 100
+                    ≈ {{ formatarNumero(parcelaIdeal('cfs', tarefaDetalhadaCfs) * 100, 4) }}%
+                  </p>
+                  <p>
+                    <strong>3. Serviço ideal neste modelo:</strong>
+                    {{ simulacoes.cfs.tempo }} ms × {{ formatarNumero(parcelaIdeal('cfs', tarefaDetalhadaCfs) * 100, 4) }}%
+                    ≈ {{ formatarNumero(simulacoes.cfs.tempo * parcelaIdeal('cfs', tarefaDetalhadaCfs), 4) }} ms
+                  </p>
+                  <p>
+                    <strong>4. Fator virtual:</strong>
+                    1024 / {{ tarefaDetalhadaCfs.peso }}
+                    ≈ {{ formatarNumero(1024 / tarefaDetalhadaCfs.peso, 4) }}
+                  </p>
+                  <p>
+                    <strong>5. Vruntime acumulado:</strong>
+                    {{ tarefaDetalhadaCfs.cpu }} ms × 1024 / {{ tarefaDetalhadaCfs.peso }}
+                    ≈ {{ formatarNumero(tarefaDetalhadaCfs.vruntime, 4) }} ms virtuais
+                  </p>
+                  <p v-if="simulacoes.cfs.ultimo?.nome === tarefaDetalhadaCfs.nome">
+                    <strong>Último passo de {{ tarefaDetalhadaCfs.nome }}:</strong>
+                    {{ formatarNumero(simulacoes.cfs.ultimo.anterior, 4) }} +
+                    {{ formatarNumero(simulacoes.cfs.ultimo.incremento, 4) }} ≈
+                    {{ formatarNumero(simulacoes.cfs.ultimo.atual, 4) }} ms virtuais
+                  </p>
+                  <small>O cálculo acumulado parte de zero neste modelo; todas as tarefas permanecem prontas e mudar o nice reinicia o histórico.</small>
+                </div>
+
+                <aside class="decisao-simulacao" aria-label="Comparação para a próxima escolha do CFS">
+                  <span class="panel-label">PRÓXIMA ESCOLHA</span>
+                  <strong v-if="proximaTarefaCfs">Processo {{ proximaTarefaCfs.nome }}</strong>
+                  <span v-else>Sem tarefa pronta no modelo.</span>
+                  <ul>
+                    <li v-for="tarefa in simulacoes.cfs.tarefas" :key="tarefa.nome">
+                      <b :style="{ color: corProcesso(tarefa.nome) }">{{ tarefa.nome }}</b>
+                      <span>vruntime {{ formatarNumero(tarefa.vruntime, 4) }} ms virtuais</span>
+                    </li>
+                  </ul>
+                  <small>O modelo escolhe o menor vruntime. Em empate exato, usa ordem alfabética. Os valores mostrados são arredondados.</small>
+                </aside>
+              </div>
+            </section>
             <p class="simulation-note">Cada passo representa 1 ms simulado. Mudar o nice reinicia o histórico. A barra mostra a parcela ideal, não a medida. A escolha e a preempção são simplificadas; não reproduzem todos os detalhes do kernel.</p>
           </div>
         </article>
@@ -1495,54 +1568,53 @@ free(vetor);</code></pre>
         <article v-else-if="slideAtual === 14" key="slide-15" class="slide">
           <div class="slide-heading">
             <span class="eyebrow">EEVDF · CONCEITOS</span>
-            <h1>Do lag ao prazo virtual</h1>
-            <p class="question">Como interpretar os cálculos usados para escolher uma tarefa?</p>
+            <h1>Da parcela ideal ao prazo virtual</h1>
+            <p class="question">Como construir os valores usados pelo escalonador?</p>
           </div>
 
           <div class="eevdf-concept-grid">
             <section class="panel eevdf-concept-card">
-              <span class="panel-label">1 · LAG E ELEGIBILIDADE</span>
+              <span class="panel-label">1 · PARCELA IDEAL</span>
+              <h2>Quanto cada tarefa recebe?</h2>
+              <p>O peso representa a participação proporcional esperada enquanto as tarefas disputam a CPU.</p>
+              <div class="eevdf-concept-formula">
+                <code>parcela ideal = peso da tarefa / soma dos pesos</code>
+              </div>
+              <p>O resultado é uma proporção. Para obter tempo, multiplicamos pela CPU disponível no intervalo.</p>
+            </section>
+
+            <section class="panel eevdf-concept-card">
+              <span class="panel-label">2 · PRAZO VIRTUAL</span>
+              <h2>Qual é o prazo?</h2>
+              <div class="eevdf-concept-formula">
+                <small>Converter a fatia para a escala virtual:</small>
+                <code>fatia virtual ≈ fatia de CPU × 1024 / peso</code>
+                <small>Calcular o aumento do tempo virtual:</small>
+                <code>Δvruntime ≈ CPU executada × 1024 / peso</code>
+                <small>Somar o aumento ao vruntime anterior. Ao definir ou renovar o prazo:</small>
+                <code>prazo = vruntime da tarefa + fatia virtual</code>
+              </div>
+              <p>A fatia pode seguir o padrão do kernel ou ser personalizada quando a interface permitir.</p>
+            </section>
+
+            <section class="panel eevdf-concept-card">
+              <span class="panel-label">3 · LAG E ELEGIBILIDADE</span>
               <h2>Quem pode disputar?</h2>
-              <p>O lag indica se a tarefa está atrasada ou adiantada em relação à sua parcela justa de CPU.</p>
               <div class="eevdf-concept-formula">
+                <code>serviço ideal = CPU disponível × parcela ideal</code>
                 <code>lag didático = serviço ideal − CPU recebida</code>
-                <small>Exemplo: A teria direito a 3 ms, mas recebeu 2 ms.</small>
-                <code>lag de A = 3 − 2 = +1 ms</code>
               </div>
-              <p><strong>Lag ≥ 0:</strong> elegível. <strong>Lag &lt; 0:</strong> não elegível nessa escolha.</p>
-            </section>
-
-            <section class="panel eevdf-concept-card">
-              <span class="panel-label">2 · FATIA VIRTUAL</span>
-              <h2>Quanto vale a fatia?</h2>
-              <p>A fatia de execução é convertida em tempo virtual conforme o peso da tarefa.</p>
-              <div class="eevdf-concept-formula">
-                <code>fatia virtual ≈ fatia × 1024 / peso</code>
-                <small>Exemplo hipotético: nice 0, peso 1024 e fatia de 2 ms.</small>
-                <code>2 × 1024 / 1024 = 2 ms virtuais</code>
-              </div>
-              <p>Uma fatia menor pode aproximar o prazo virtual; a escolha também depende da elegibilidade.</p>
-            </section>
-
-            <section class="panel eevdf-concept-card">
-              <span class="panel-label">3 · PRAZO VIRTUAL</span>
-              <h2>Quem vem primeiro?</h2>
-              <p>Entre as tarefas elegíveis, o modelo seleciona a que possui o menor prazo virtual.</p>
-              <div class="eevdf-concept-formula">
-                <code>prazo = vruntime da tarefa ao definir o prazo + fatia virtual</code>
-                <small>Exemplo: A tem vruntime de 2 ms virtuais ao definir o prazo.</small>
-                <code>2 + 2 = 4 ms virtuais</code>
-              </div>
-              <p>É uma referência de ordenação, não um horário real nem uma garantia de tempo real.</p>
+              <p><strong>Lag negativo:</strong> adiantada, não elegível.</p>
+              <p><strong>Lag zero ou positivo:</strong> equilibrada ou atrasada, elegível.</p>
             </section>
           </div>
 
           <div class="highlight-strip">
-            <strong>EEVDF:</strong> calcula a elegibilidade pelo lag e compara os prazos virtuais das tarefas elegíveis.
+            <strong>Decisão:</strong> verificar a elegibilidade pelo lag; entre as tarefas elegíveis, escolher o menor prazo virtual.
           </div>
           <p class="simulation-note">
-            Exemplos didáticos: o lag do Linux usa uma referência virtual ponderada; os valores de fatia são hipotéticos.
-            O prazo usa o vruntime no momento em que é definido ou renovado.
+            A conta de serviço ideal é didática para um intervalo com o mesmo conjunto de tarefas prontas.
+            O Linux usa contabilidade virtual ponderada; o prazo não é um horário real.
           </p>
         </article>
 
@@ -1572,12 +1644,12 @@ free(vetor);</code></pre>
                     <td>{{ tarefa.peso }}</td>
                     <td><select v-model.number="configuracoes.eevdf[indice].fatia" :aria-label="'Fatia hipotética do processo ' + tarefa.nome"><option v-for="fatia in [1, 2, 4, 8]" :key="fatia" :value="fatia">{{ fatia }} ms</option></select></td>
                     <td>{{ formatarNumero(parcelaIdeal('eevdf', tarefa) * 100) }}%</td>
-                    <td>{{ formatarNumero(simulacoes.eevdf.tempo * parcelaIdeal('eevdf', tarefa)) }} ms</td>
+                    <td>{{ formatarNumero(simulacoes.eevdf.tempo * parcelaIdeal('eevdf', tarefa), 4) }} ms</td>
                     <td>{{ tarefa.cpu }} ms</td>
-                    <td>{{ formatarNumero(tarefa.vruntime) }}</td>
-                    <td>{{ formatarNumero(lagDidatico('eevdf', tarefa)) }}</td>
+                    <td>{{ formatarNumero(tarefa.vruntime, 4) }}</td>
+                    <td>{{ formatarNumero(lagDidatico('eevdf', tarefa), 4) }}</td>
                     <td>{{ tarefaElegivel('eevdf', tarefa) ? 'Sim' : 'Não' }}</td>
-                    <td :title="'Base virtual ' + formatarNumero(tarefa.basePrazo) + ' + fatia virtual ' + formatarNumero(tarefa.fatia * 1024 / tarefa.peso)">{{ formatarNumero(tarefa.prazo) }}</td>
+                    <td :title="'Base virtual ' + formatarNumero(tarefa.basePrazo, 4) + ' + fatia virtual ' + formatarNumero(tarefa.fatia * 1024 / tarefa.peso, 4)">{{ formatarNumero(tarefa.prazo, 4) }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -1607,6 +1679,73 @@ free(vetor);</code></pre>
                 </select>
               </label>
             </div>
+            <section class="calculos-simulacao" aria-labelledby="titulo-calculos-simulacao">
+              <div class="calculos-simulacao-header">
+                <div>
+                  <span class="panel-label">DETALHAMENTO DO MODELO</span>
+                  <h2 id="titulo-calculos-simulacao">Entenda os cálculos</h2>
+                </div>
+                <label>
+                  Processo
+                  <select v-model="processoDetalhadoEevdf">
+                    <option v-for="tarefa in simulacoes.eevdf.tarefas" :key="tarefa.nome" :value="tarefa.nome">{{ tarefa.nome }}</option>
+                  </select>
+                </label>
+              </div>
+
+              <div v-if="tarefaDetalhadaEevdf" class="calculos-simulacao-layout">
+                <div class="calculos-simulacao-list">
+                  <p>
+                    <strong>1. Parcela ideal:</strong>
+                    {{ tarefaDetalhadaEevdf.peso }} / {{ pesoTotal('eevdf') }} × 100
+                    ≈ {{ formatarNumero(parcelaIdeal('eevdf', tarefaDetalhadaEevdf) * 100, 4) }}%
+                  </p>
+                  <p>
+                    <strong>2. Serviço ideal:</strong>
+                    {{ simulacoes.eevdf.tempo }} ms × {{ formatarNumero(parcelaIdeal('eevdf', tarefaDetalhadaEevdf) * 100, 4) }}%
+                    ≈ {{ formatarNumero(simulacoes.eevdf.tempo * parcelaIdeal('eevdf', tarefaDetalhadaEevdf), 4) }} ms
+                  </p>
+                  <p>
+                    <strong>3. Lag didático:</strong>
+                    {{ formatarNumero(simulacoes.eevdf.tempo * parcelaIdeal('eevdf', tarefaDetalhadaEevdf), 4) }}
+                    − {{ tarefaDetalhadaEevdf.cpu }} ms
+                    ≈ {{ formatarNumero(lagDidatico('eevdf', tarefaDetalhadaEevdf), 4) }} ms ·
+                    {{ tarefaElegivel('eevdf', tarefaDetalhadaEevdf) ? 'elegível' : 'não elegível' }}
+                  </p>
+                  <p>
+                    <strong>4. Fatia virtual:</strong>
+                    {{ tarefaDetalhadaEevdf.fatia }} ms × 1024 / {{ tarefaDetalhadaEevdf.peso }}
+                    ≈ {{ formatarNumero(tarefaDetalhadaEevdf.fatia * 1024 / tarefaDetalhadaEevdf.peso, 4) }} ms virtuais
+                  </p>
+                  <p>
+                    <strong>5. Vruntime acumulado:</strong>
+                    {{ tarefaDetalhadaEevdf.cpu }} ms × 1024 / {{ tarefaDetalhadaEevdf.peso }}
+                    ≈ {{ formatarNumero(tarefaDetalhadaEevdf.vruntime, 4) }} ms virtuais
+                  </p>
+                  <p>
+                    <strong>6. Prazo virtual atual:</strong>
+                    base {{ formatarNumero(tarefaDetalhadaEevdf.basePrazo, 4) }} +
+                    fatia virtual {{ formatarNumero(tarefaDetalhadaEevdf.fatia * 1024 / tarefaDetalhadaEevdf.peso, 4) }}
+                    ≈ {{ formatarNumero(tarefaDetalhadaEevdf.prazo, 4) }} ms virtuais
+                  </p>
+                  <small>A base é o vruntime da tarefa quando o prazo foi definido ou renovado; ela pode ser diferente do vruntime atual.</small>
+                </div>
+
+                <aside class="decisao-simulacao" aria-label="Comparação para a próxima escolha">
+                  <span class="panel-label">PRÓXIMA ESCOLHA</span>
+                  <strong v-if="proximaTarefaEevdf">Processo {{ proximaTarefaEevdf.nome }}</strong>
+                  <span v-else>Sem tarefa elegível no modelo.</span>
+                  <ul>
+                    <li v-for="tarefa in simulacoes.eevdf.tarefas" :key="tarefa.nome">
+                      <b :style="{ color: corProcesso(tarefa.nome) }">{{ tarefa.nome }}</b>
+                      <span v-if="tarefaElegivel('eevdf', tarefa)">elegível · prazo {{ formatarNumero(tarefa.prazo, 4) }}</span>
+                      <span v-else>não elegível</span>
+                    </li>
+                  </ul>
+                  <small>Entre as elegíveis, vence o menor prazo. Em empate exato, este modelo usa ordem alfabética.</small>
+                </aside>
+              </div>
+            </section>
             <p class="simulation-note">* Valores hipotéticos: lag em ms de serviço (ideal − recebido), fatia em ms e prazo em unidades virtuais. A fatia não é medida nem atribuída por ser periódica. O prazo é renovado ao atingir a fatia neste modelo discreto. Alterar nice ou fatia reinicia a simulação.</p>
           </div>
         </article>
@@ -4548,6 +4687,98 @@ th {
   line-height: 1.4;
 }
 
+.calculos-simulacao {
+  margin-top: 1.25rem;
+  padding: 1.15rem;
+  border: 1px solid var(--presentation-border);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.calculos-simulacao-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 1rem;
+}
+
+.calculos-simulacao-header h2 {
+  margin: 0;
+}
+
+.calculos-simulacao-header label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--presentation-muted);
+  font-size: 0.85rem;
+}
+
+.calculos-simulacao-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(220px, 1fr);
+  gap: 1rem;
+}
+
+.calculos-simulacao-list {
+  display: grid;
+  align-content: start;
+  gap: 0.65rem;
+}
+
+.calculos-simulacao-list p {
+  margin: 0;
+  color: var(--presentation-muted);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.calculos-simulacao-list strong {
+  color: var(--presentation-text);
+}
+
+.calculos-simulacao-list small,
+.decisao-simulacao small {
+  color: var(--presentation-muted);
+  line-height: 1.5;
+}
+
+.decisao-simulacao {
+  display: grid;
+  align-content: start;
+  gap: 0.7rem;
+  padding: 1rem;
+  border: 1px solid rgba(30, 215, 96, 0.24);
+  border-radius: 12px;
+  background: rgba(30, 215, 96, 0.06);
+}
+
+.decisao-simulacao .panel-label {
+  margin-bottom: 0;
+}
+
+.decisao-simulacao > strong {
+  color: var(--presentation-accent);
+}
+
+.decisao-simulacao ul {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.decisao-simulacao li {
+  display: flex;
+  gap: 0.55rem;
+  color: var(--presentation-muted);
+  font-size: 0.8rem;
+}
+
 .nice-details {
   margin-top: 1rem;
   color: var(--presentation-muted);
@@ -4679,6 +4910,10 @@ th {
 }
 
 @media (max-width: 900px) {
+  .calculos-simulacao-layout {
+    grid-template-columns: 1fr;
+  }
+
   .eevdf-concept-grid {
     grid-template-columns: 1fr;
   }
