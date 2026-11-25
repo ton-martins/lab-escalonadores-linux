@@ -1,8 +1,8 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from "vue";
 
 const slideAtual = ref(0);
-const totalSlides = 28;
+const totalSlides = 29;
 
 const slides = [
   "Apresentação",
@@ -16,10 +16,11 @@ const slides = [
   "Estados de execução",
   "Fundamentos do escalonamento",
   "Políticas de escalonamento",
-  "CFS e vruntime",
-  "CFS, nice e pesos",
-  "EEVDF: lag e elegibilidade",
-  "EEVDF em ação",
+  "Temporizador e reavaliação",
+  "CFS: conceitos e pesos",
+  "Simulação do CFS",
+  "EEVDF: conceitos e elegibilidade",
+  "Simulação do EEVDF",
   "CFS × EEVDF",
   "Ambiente experimental",
   "Afinidade de CPU",
@@ -35,55 +36,319 @@ const slides = [
   "Dashboard",
 ];
 
+const politicas = [
+  {
+    nome: "FCFS",
+    descricao: "Atende primeiro quem entrou primeiro na fila.",
+    funcionamento: "First Come, First Served: a próxima tarefa é a primeira que chegou à fila de prontas.",
+    preempcao: "Não preemptiva: a tarefa continua até terminar ou bloquear.",
+    exemplo: "Se A chega antes de B e C, A executa primeiro; as demais aguardam sua vez.",
+    vantagem: "Simples de compreender e implementar.",
+    limitacao: "Uma tarefa longa pode fazer tarefas curtas esperarem bastante.",
+  },
+  {
+    nome: "Round Robin",
+    descricao: "Alterna tarefas prontas por fatias de tempo.",
+    funcionamento: "Cada tarefa recebe uma oportunidade de execução por uma fatia; se continuar pronta, volta à fila.",
+    preempcao: "Preemptiva: a fatia pode terminar antes de a tarefa concluir.",
+    exemplo: "Com fatias de 2 ms, A executa até 2 ms, depois B e depois C, conforme a ordem da fila.",
+    vantagem: "Oferece oportunidades frequentes às tarefas prontas.",
+    limitacao: "Fatias muito pequenas podem causar muitas trocas de contexto.",
+  },
+  {
+    nome: "Prioridades",
+    descricao: "Favorece tarefas com maior prioridade relativa.",
+    funcionamento: "A escolha considera a prioridade atribuída às tarefas prontas.",
+    preempcao: "Pode ser preemptiva ou não, conforme a política adotada.",
+    exemplo: "Se C tem prioridade maior que A e B, C pode ser escolhida antes delas.",
+    vantagem: "Permite favorecer tarefas consideradas mais importantes.",
+    limitacao: "Tarefas de baixa prioridade podem esperar demais, dependendo da política.",
+  },
+  {
+    nome: "SJF / SRTF",
+    descricao: "Favorece a menor rajada de CPU conhecida ou estimada.",
+    funcionamento: "SJF escolhe a menor rajada; SRTF compara o tempo restante e pode trocar a tarefa atual.",
+    preempcao: "SJF é normalmente não preemptivo; SRTF é preemptivo.",
+    exemplo: "Se C precisa de 1 ms e A ainda precisa de 4 ms, SRTF pode escolher C.",
+    vantagem: "Pode reduzir a espera média de tarefas curtas.",
+    limitacao: "O tempo futuro de CPU geralmente precisa ser estimado.",
+  },
+  {
+    nome: "Justiça proporcional",
+    descricao: "Busca distribuição proporcional de serviço.",
+    funcionamento: "Divide as oportunidades de CPU considerando pesos e serviço já recebido.",
+    preempcao: "A implementação pode reavaliar e preemptar tarefas.",
+    exemplo: "Com pesos iguais, A e B tendem a dividir a CPU disponível em torno de 50% para cada.",
+    vantagem: "Busca equilíbrio de longo prazo conforme os pesos.",
+    limitacao: "Uma divisão justa não garante resposta em um prazo rígido.",
+  },
+  {
+    nome: "Tempo real",
+    descricao: "Reúne políticas que consideram requisitos de tempo.",
+    funcionamento: "Políticas de tempo real são projetadas para lidar com prazos ou prioridades temporais.",
+    preempcao: "Depende da política e da configuração do sistema.",
+    exemplo: "Uma tarefa de controle precisa reagir antes de um prazo definido.",
+    vantagem: "Ajuda a projetar sistemas com resposta temporal previsível.",
+    limitacao: "A política isolada não garante prazo: hardware, carga e configuração também importam.",
+  },
+];
+
+const politicaSelecionada = ref(null);
+const botaoFecharPolitica = ref(null);
+let elementoAnteriorModal = null;
+
+async function abrirPolitica(politica) {
+  elementoAnteriorModal = document.activeElement;
+  politicaSelecionada.value = politica;
+  await nextTick();
+  botaoFecharPolitica.value?.focus();
+}
+
+function fecharPolitica() {
+  politicaSelecionada.value = null;
+  nextTick(() => elementoAnteriorModal?.focus());
+}
+
+/** Pesos de nice -20 a +19, conforme a tabela do kernel Linux. */
+const pesosNice = [
+  88761, 71755, 56483, 46273, 36291,
+  29154, 23254, 18705, 14949, 11916,
+  9548, 7620, 6100, 4904, 3906,
+  3121, 2501, 1991, 1586, 1277,
+  1024, 820, 655, 526, 423,
+  335, 272, 215, 172, 137,
+  110, 87, 70, 56, 45,
+  36, 29, 23, 18, 15,
+];
+
+const valoresNice = Array.from({ length: 40 }, (_, i) => i - 20);
+const linhasPesos = Array.from({ length: 20 }, (_, i) => ({
+  niceA: i - 20,
+  pesoA: pesosNice[i],
+  niceB: i,
+  pesoB: pesosNice[i + 20],
+}));
+const configuracoes = reactive({
+  cfs: [
+    { nome: "A", nice: 0, fatia: 4 },
+    { nome: "B", nice: 0, fatia: 4 },
+    { nome: "C", nice: 0, fatia: 2 },
+  ],
+  eevdf: [
+    { nome: "A", nice: 0, fatia: 4 },
+    { nome: "B", nice: 0, fatia: 4 },
+    { nome: "C", nice: 0, fatia: 2 },
+  ],
+});
+
+function pesoDeNice(nice) {
+  return pesosNice[Number(nice) + 20];
+}
+
+function formatarNumero(valor, casas = 2) {
+  return Number(valor).toFixed(casas).replace(".", ",");
+}
+
+/** Estado didático independente para cada escalonador. */
+const simulacoes = reactive({
+  cfs: { tempo: 0, tarefas: [], historico: [], ultimo: null, ativa: false, velocidade: 700 },
+  eevdf: { tempo: 0, tarefas: [], historico: [], ultimo: null, ativa: false, velocidade: 700 },
+});
+const temporizadoresSimulacao = { cfs: undefined, eevdf: undefined };
+const EPSILON = 1e-9;
+
+function pararSimulacao(tipo) {
+  if (temporizadoresSimulacao[tipo] !== undefined) {
+    window.clearInterval(temporizadoresSimulacao[tipo]);
+    temporizadoresSimulacao[tipo] = undefined;
+  }
+  simulacoes[tipo].ativa = false;
+}
+
+function reiniciarSimulacao(tipo) {
+  pararSimulacao(tipo);
+  const simulacao = simulacoes[tipo];
+  simulacao.tempo = 0;
+  simulacao.historico = [];
+  simulacao.ultimo = null;
+  simulacao.tarefas = configuracoes[tipo].map((config) => {
+    const peso = pesoDeNice(config.nice);
+    return {
+      nome: config.nome,
+      nice: Number(config.nice),
+      peso,
+      fatia: Number(config.fatia),
+      cpu: 0,
+      vruntime: 0,
+      basePrazo: 0,
+      prazo: Number(config.fatia) * 1024 / peso,
+    };
+  });
+}
+
+function pesoTotal(tipo) {
+  return simulacoes[tipo].tarefas.reduce((total, tarefa) => total + tarefa.peso, 0);
+}
+
+function parcelaIdeal(tipo, tarefa) {
+  const total = pesoTotal(tipo);
+  return total ? tarefa.peso / total : 0;
+}
+
+/** Lag em tempo de serviço, no cenário simplificado com todas as tarefas prontas. */
+function lagDidatico(tipo, tarefa) {
+  return simulacoes[tipo].tempo * parcelaIdeal(tipo, tarefa) - tarefa.cpu;
+}
+
+function tarefaElegivel(tipo, tarefa) {
+  return lagDidatico(tipo, tarefa) >= -EPSILON;
+}
+
+function escolherTarefa(tipo) {
+  const tarefas = simulacoes[tipo].tarefas;
+  if (!tarefas.length) return null;
+  if (tipo === "cfs") {
+    return [...tarefas].sort((a, b) => a.vruntime - b.vruntime || a.nome.localeCompare(b.nome))[0];
+  }
+  const elegiveis = tarefas.filter((tarefa) => tarefaElegivel(tipo, tarefa));
+  return elegiveis.sort((a, b) => a.prazo - b.prazo || a.nome.localeCompare(b.nome))[0] ?? null;
+}
+
+/** Um passo representa 1 ms simulado, não um evento medido do kernel. */
+function executarPasso(tipo) {
+  const simulacao = simulacoes[tipo];
+  const tarefa = escolherTarefa(tipo);
+  if (!tarefa) {
+    pararSimulacao(tipo);
+    return;
+  }
+  const anterior = tarefa.vruntime;
+  const incremento = 1024 / tarefa.peso;
+  const prazoEscolhido = tarefa.prazo;
+  const lagAntes = lagDidatico(tipo, tarefa);
+  tarefa.cpu += 1;
+  tarefa.vruntime += incremento;
+  simulacao.tempo += 1;
+  simulacao.ultimo = { nome: tarefa.nome, anterior, incremento, atual: tarefa.vruntime, prazoEscolhido, lagAntes };
+  simulacao.historico.push(tarefa.nome);
+  if (simulacao.historico.length > 30) simulacao.historico.shift();
+
+  // Neste modelo, ao alcançar o prazo, uma nova fatia gera outro prazo.
+  if (tipo === "eevdf" && tarefa.vruntime + EPSILON >= tarefa.prazo) {
+    tarefa.basePrazo = tarefa.vruntime;
+    tarefa.prazo = tarefa.basePrazo + tarefa.fatia * 1024 / tarefa.peso;
+  }
+}
+
+function iniciarSimulacao(tipo) {
+  if (simulacoes[tipo].ativa) return;
+  simulacoes[tipo].ativa = true;
+  temporizadoresSimulacao[tipo] = window.setInterval(
+    () => executarPasso(tipo),
+    simulacoes[tipo].velocidade,
+  );
+}
+
+function alternarSimulacao(tipo) {
+  if (simulacoes[tipo].ativa) pararSimulacao(tipo);
+  else iniciarSimulacao(tipo);
+}
+
+function selecionarCenario(tipo, diferentes) {
+  configuracoes[tipo].forEach((config) => {
+    config.nice = diferentes && config.nome === "B" ? 10 : 0;
+  });
+  reiniciarSimulacao(tipo);
+}
+
+watch(() => configuracoes.cfs, () => reiniciarSimulacao("cfs"), { deep: true, flush: "sync" });
+watch(() => configuracoes.eevdf, () => reiniciarSimulacao("eevdf"), { deep: true, flush: "sync" });
+watch(() => simulacoes.cfs.velocidade, () => {
+  if (simulacoes.cfs.ativa) { pararSimulacao("cfs"); iniciarSimulacao("cfs"); }
+});
+watch(() => simulacoes.eevdf.velocidade, () => {
+  if (simulacoes.eevdf.ativa) { pararSimulacao("eevdf"); iniciarSimulacao("eevdf"); }
+});
+reiniciarSimulacao("cfs");
+reiniciarSimulacao("eevdf");
+
 const fasesEstados = [
   {
     titulo: "Criação",
     descricao: "O kernel cria as tarefas A, B e C.",
     tarefas: { A: "criado", B: "criado", C: "criado" },
+    transicao: null,
   },
   {
     titulo: "Fila de prontas",
     descricao: "As três tarefas estão aptas a disputar a vCPU 0.",
     tarefas: { A: "pronto", B: "pronto", C: "pronto" },
+    transicao: "admissao",
   },
   {
     titulo: "A executa",
     descricao: "A ocupa a vCPU 0; B e C aguardam na fila de prontas.",
     tarefas: { A: "execucao", B: "pronto", C: "pronto" },
+    transicao: "despacho",
   },
   {
     titulo: "Preempção",
     descricao: "A retorna ao estado pronto e B recebe a vCPU 0.",
     tarefas: { A: "pronto", B: "execucao", C: "pronto" },
+    transicao: "preempcao",
   },
   {
     titulo: "C executa",
     descricao: "C recebe CPU para realizar uma pequena rajada de trabalho.",
     tarefas: { A: "pronto", B: "pronto", C: "execucao" },
+    transicao: "despacho",
   },
   {
     titulo: "C aguarda",
     descricao: "C chama nanosleep() e entra em espera; A passa a executar.",
     tarefas: { A: "execucao", B: "pronto", C: "espera" },
+    transicao: "espera",
   },
   {
     titulo: "B executa",
     descricao: "A é preemptada; B recebe a vCPU enquanto C ainda espera.",
     tarefas: { A: "pronto", B: "execucao", C: "espera" },
+    transicao: "preempcao",
   },
   {
     titulo: "Despertar de C",
-    descricao: "O temporizador termina; C volta ao estado pronto.",
-    tarefas: { A: "execucao", B: "pronto", C: "pronto" },
+    descricao: "O tempo de espera termina; C volta a ficar pronta enquanto B continua executando.",
+    tarefas: { A: "pronto", B: "execucao", C: "pronto" },
+    transicao: "despertar",
   },
   {
-    titulo: "Término",
-    descricao: "A, B e C concluem a duração alvo e finalizam.",
+    titulo: "C retorna à CPU",
+    descricao: "O escalonador seleciona C; B volta a ficar pronta.",
+    tarefas: { A: "pronto", B: "pronto", C: "execucao" },
+    transicao: "despacho",
+  },
+  {
+    titulo: "C finaliza",
+    descricao: "C conclui sua execução; B recebe a vCPU.",
+    tarefas: { A: "pronto", B: "execucao", C: "finalizado" },
+    transicao: "termino",
+  },
+  {
+    titulo: "B finaliza",
+    descricao: "B termina e A passa a executar.",
+    tarefas: { A: "execucao", B: "finalizado", C: "finalizado" },
+    transicao: "termino",
+  },
+  {
+    titulo: "A finaliza",
+    descricao: "A termina; os três processos estão finalizados.",
     tarefas: { A: "finalizado", B: "finalizado", C: "finalizado" },
+    transicao: "termino",
   },
 ];
 
 const faseEstado = ref(0);
+const simulacaoAtiva = ref(false);
 let temporizadorEstados;
 
 const faseAtual = computed(() => fasesEstados[faseEstado.value]);
@@ -118,19 +383,30 @@ function irPara(indice) {
 
 function iniciarSimulacaoEstados() {
   pararSimulacaoEstados();
-
   faseEstado.value = 0;
-
-  temporizadorEstados = window.setInterval(() => {
-    faseEstado.value = (faseEstado.value + 1) % fasesEstados.length;
-  }, 1100);
+  continuarSimulacaoEstados();
 }
 
 function pararSimulacaoEstados() {
-  if (temporizadorEstados) {
+  if (temporizadorEstados !== undefined) {
     window.clearInterval(temporizadorEstados);
     temporizadorEstados = undefined;
   }
+  simulacaoAtiva.value = false;
+}
+
+function continuarSimulacaoEstados() {
+  if (simulacaoAtiva.value || faseEstado.value === fasesEstados.length - 1) return;
+  simulacaoAtiva.value = true;
+  temporizadorEstados = window.setInterval(() => {
+    if (faseEstado.value < fasesEstados.length - 1) faseEstado.value++;
+    if (faseEstado.value === fasesEstados.length - 1) pararSimulacaoEstados();
+  }, 4000);
+}
+
+function mudarFaseEstado(direcao) {
+  pararSimulacaoEstados();
+  faseEstado.value = Math.max(0, Math.min(fasesEstados.length - 1, faseEstado.value + direcao));
 }
 
 function estadoAtivo(estado) {
@@ -154,6 +430,16 @@ function textoEstado(estado) {
 }
 
 function lidarTeclado(evento) {
+  if (politicaSelecionada.value) {
+    if (evento.key === "Escape") {
+      evento.preventDefault();
+      fecharPolitica();
+    }
+    return;
+  }
+
+  if (["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(evento.target?.tagName)) return;
+
   if (evento.key === "ArrowRight" || evento.key === " ") {
     evento.preventDefault();
     avancar();
@@ -176,6 +462,9 @@ function lidarTeclado(evento) {
 }
 
 watch(slideAtual, (indice) => {
+  if (politicaSelecionada.value) fecharPolitica();
+  if (indice !== 13) pararSimulacao("cfs");
+  if (indice !== 15) pararSimulacao("eevdf");
   if (indice === 8) {
     iniciarSimulacaoEstados();
     return;
@@ -195,6 +484,8 @@ onMounted(() => {
 onBeforeUnmount(() => {
   window.removeEventListener("keydown", lidarTeclado);
   pararSimulacaoEstados();
+  pararSimulacao("cfs");
+  pararSimulacao("eevdf");
 });
 </script>
 
@@ -793,45 +1084,51 @@ free(vetor);</code></pre>
               <path
                 d="M240 120 H320"
                 class="state-arrow"
+                :class="{ 'arrow-active': faseAtual.transicao === 'admissao' }"
                 marker-end="url(#arrowhead)"
               />
 
               <path
                 d="M530 120 H640"
                 class="state-arrow"
+                :class="{ 'arrow-active': faseAtual.transicao === 'despacho' }"
                 marker-end="url(#arrowhead)"
               />
 
               <path
                 d="M790 175 V265"
                 class="state-arrow"
+                :class="{ 'arrow-active': faseAtual.transicao === 'espera' }"
                 marker-end="url(#arrowhead)"
               />
 
               <path
-                d="M645 325 H530"
+                d="M640 320 H425 V170"
                 class="state-arrow"
+                :class="{ 'arrow-active': faseAtual.transicao === 'despertar' }"
                 marker-end="url(#arrowhead)"
               />
 
               <path
-                d="M405 265 V180"
+                d="M700 170 V220 H480 V170"
                 class="state-arrow"
+                :class="{ 'arrow-active': faseAtual.transicao === 'preempcao' }"
                 marker-end="url(#arrowhead)"
               />
 
               <path
-                d="M920 120 H1000"
+                d="M890 120 H950"
                 class="state-arrow"
+                :class="{ 'arrow-active': faseAtual.transicao === 'termino' }"
                 marker-end="url(#arrowhead)"
               />
 
               <text x="272" y="102" class="arrow-text">admissão</text>
               <text x="558" y="102" class="arrow-text">despacho</text>
               <text x="810" y="225" class="arrow-text">I/O, sleep ou evento</text>
-              <text x="545" y="307" class="arrow-text">evento concluído</text>
-              <text x="335" y="225" class="arrow-text">preempção</text>
-              <text x="922" y="102" class="arrow-text">término</text>
+              <text x="535" y="305" class="arrow-text">evento concluído</text>
+              <text x="590" y="210" class="arrow-text">preempção</text>
+              <text x="920" y="102" class="arrow-text">término</text>
 
               <g :class="{ active: estadoAtivo('criado') }">
                 <rect x="55" y="70" width="185" height="100" rx="50" class="state-node" />
@@ -844,8 +1141,8 @@ free(vetor);</code></pre>
               </g>
 
               <g :class="{ active: estadoAtivo('execucao') }">
-                <rect x="640" y="70" width="280" height="100" rx="50" class="state-node" />
-                <text x="780" y="126" class="state-title">Em execução</text>
+                <rect x="640" y="70" width="250" height="100" rx="50" class="state-node" />
+                <text x="765" y="126" class="state-title">Em execução</text>
               </g>
 
               <g :class="{ active: estadoAtivo('espera') }">
@@ -854,8 +1151,8 @@ free(vetor);</code></pre>
               </g>
 
               <g :class="{ active: estadoAtivo('finalizado') }">
-                <rect x="930" y="70" width="155" height="100" rx="50" class="state-node" />
-                <text x="1007" y="126" class="state-title">Finalizado</text>
+                <rect x="950" y="70" width="145" height="100" rx="50" class="state-node" />
+                <text x="1022" y="126" class="state-title">Finalizado</text>
               </g>
             </svg>
 
@@ -871,6 +1168,14 @@ free(vetor);</code></pre>
               </div>
             </div>
 
+            <div class="simulation-controls" aria-label="Controles da simulação">
+              <button type="button" @click="mudarFaseEstado(-1)" :disabled="faseEstado === 0">Anterior</button>
+              <button v-if="simulacaoAtiva" type="button" @click="pararSimulacaoEstados">Pausar</button>
+              <button v-else type="button" @click="continuarSimulacaoEstados" :disabled="faseEstado === fasesEstados.length - 1">Continuar</button>
+              <button type="button" @click="mudarFaseEstado(1)" :disabled="faseEstado === fasesEstados.length - 1">Próximo</button>
+              <button type="button" @click="iniciarSimulacaoEstados">Reiniciar</button>
+            </div>
+
             <p class="simulation-note">
               Simulação didática: representa eventos típicos, não uma amostra
               real coletada pelo pidstat.
@@ -884,7 +1189,7 @@ free(vetor);</code></pre>
             <span class="eyebrow">ESCALONAMENTO</span>
             <h1>Como o kernel escolhe a próxima tarefa?</h1>
             <p class="question">
-              Quando A, B e C estão prontas, qual delas deve executar na vCPU 0?
+              Quando há tarefas prontas, como decidir quem executa na vCPU 0?
             </p>
           </div>
 
@@ -917,41 +1222,52 @@ free(vetor);</code></pre>
 
             <div class="scheduler-box cpu-box">
               <span class="panel-label">DESPACHO</span>
-              <strong>A → vCPU 0</strong>
+              <strong>Exemplo: A → vCPU 0</strong>
             </div>
           </div>
 
           <div class="policy-grid compact-policy-grid">
-            <div class="policy-card">
-              <strong>FCFS</strong>
-              <p>Atende primeiro quem entrou primeiro na fila.</p>
-            </div>
-
-            <div class="policy-card">
-              <strong>Round Robin</strong>
-              <p>Alterna tarefas prontas por fatias de tempo.</p>
-            </div>
-
-            <div class="policy-card">
-              <strong>Prioridades</strong>
-              <p>Favorece tarefas com maior prioridade relativa.</p>
-            </div>
-
-            <div class="policy-card">
-              <strong>SJF / SRTF</strong>
-              <p>Favorece menor rajada estimada de CPU.</p>
-            </div>
-
-            <div class="policy-card">
-              <strong>Justiça</strong>
-              <p>Busca distribuição proporcional de serviço.</p>
-            </div>
-
-            <div class="policy-card">
-              <strong>Tempo real</strong>
-              <p>Prioriza cumprimento de prazos definidos.</p>
-            </div>
+            <button
+              v-for="politica in politicas"
+              :key="politica.nome"
+              type="button"
+              class="policy-card policy-trigger"
+              aria-haspopup="dialog"
+              @click="abrirPolitica(politica)"
+            >
+              <strong>{{ politica.nome }}</strong>
+              <p>{{ politica.descricao }}</p>
+              <small>Selecionar para saber mais →</small>
+            </button>
           </div>
+
+          <Teleport to="body">
+            <div v-if="politicaSelecionada" class="policy-overlay" @click.self="fecharPolitica">
+              <section
+                class="policy-dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="policy-title"
+                @keydown.esc.stop.prevent="fecharPolitica"
+                @keydown.tab.prevent="botaoFecharPolitica?.focus()"
+              >
+                <div class="policy-dialog-header">
+                  <div>
+                    <span class="panel-label">POLÍTICA DE ESCALONAMENTO</span>
+                    <h2 id="policy-title">{{ politicaSelecionada.nome }}</h2>
+                  </div>
+                  <button ref="botaoFecharPolitica" type="button" aria-label="Fechar" @click="fecharPolitica">×</button>
+                </div>
+                <dl>
+                  <dt>Como funciona</dt><dd>{{ politicaSelecionada.funcionamento }}</dd>
+                  <dt>Preempção</dt><dd>{{ politicaSelecionada.preempcao }}</dd>
+                  <dt>Exemplo</dt><dd>{{ politicaSelecionada.exemplo }}</dd>
+                  <dt>Vantagem</dt><dd>{{ politicaSelecionada.vantagem }}</dd>
+                  <dt>Limitação</dt><dd>{{ politicaSelecionada.limitacao }}</dd>
+                </dl>
+              </section>
+            </div>
+          </Teleport>
 
           <div class="metrics-row">
             <span>Tempo de resposta</span>
@@ -968,367 +1284,336 @@ free(vetor);</code></pre>
           <div class="slide-heading">
             <span class="eyebrow">POLÍTICAS</span>
             <h1>A mesma carga, decisões diferentes</h1>
-            <p class="question">
-              Por que a mesma fila de prontas pode produzir resultados diferentes?
-            </p>
+            <p class="question">Como a política altera a ordem de execução e a espera?</p>
           </div>
 
           <div class="shared-scenario">
-            <span class="panel-label">CENÁRIO COMUM</span>
+            <span class="panel-label">CENÁRIO HIPOTÉTICO · UMA VCPU</span>
             <div>
-              <span class="process-a">A pronta</span>
-              <span class="process-b">B executando</span>
-              <span class="process-c">C retorna da espera</span>
+              <span class="process-a">A: pronta em 0 ms · precisa de 6 ms</span>
+              <span class="process-b">B: pronta em 0 ms · precisa de 4 ms</span>
+              <span class="process-c">C: pronta em 2 ms · precisa de 1 ms</span>
             </div>
           </div>
+          <p class="simulation-note">A está à frente de B na fila inicial. Supomos as rajadas conhecidas e nenhuma outra tarefa.</p>
 
-          <div class="policy-results">
-            <div class="policy-result">
-              <strong>FCFS</strong>
-              <div class="mini-timeline">
-                <span class="process-b">B continua</span>
-                <span class="process-a">A</span>
-                <span class="process-c">C</span>
+          <div class="comparison-grid policy-comparison">
+            <section class="panel">
+              <span class="panel-label">FCFS · NÃO PREEMPTIVO</span>
+              <h2>C aguarda sua vez</h2>
+              <div class="timeline-with-times">
+                <div class="timeline-blocks">
+                  <span class="process-a" style="flex: 6">A</span>
+                  <span class="process-b" style="flex: 4">B</span>
+                  <span class="process-c" style="flex: 1">C</span>
+                </div>
+                <div class="timeline-labels">
+                  <span style="left: 0%">0</span><span style="left: 54.545%">6</span>
+                  <span style="left: 90.909%">10</span><span style="left: 100%">11 ms</span>
+                </div>
               </div>
-              <p>C pode aguardar tarefas que chegaram antes.</p>
-            </div>
+              <p>A conclui aos 6 ms; B executa em seguida. C espera de 2 até 10 ms.</p>
+            </section>
 
-            <div class="policy-result">
-              <strong>Round Robin</strong>
-              <div class="mini-timeline">
-                <span class="process-b">B</span>
-                <span class="process-a">A</span>
-                <span class="process-c">C</span>
+            <section class="panel">
+              <span class="panel-label">SRTF · PREEMPTIVO</span>
+              <h2>C interrompe A</h2>
+              <div class="timeline-with-times">
+                <div class="timeline-blocks">
+                  <span class="process-a" style="flex: 2">A</span>
+                  <span class="process-c" style="flex: 1">C</span>
+                  <span class="process-a" style="flex: 4">A</span>
+                  <span class="process-b" style="flex: 4">B</span>
+                </div>
+                <div class="timeline-labels">
+                  <span style="left: 0%">0</span><span style="left: 18.182%">2</span>
+                  <span style="left: 27.273%">3</span><span style="left: 63.636%">7</span>
+                  <span style="left: 100%">11 ms</span>
+                </div>
               </div>
-              <p>C entra na rotação após a fatia atual.</p>
-            </div>
-
-            <div class="policy-result">
-              <strong>Prioridades</strong>
-              <div class="mini-timeline">
-                <span class="process-b">B</span>
-                <span class="process-c">C</span>
-                <span class="process-a">A</span>
-              </div>
-              <p>Se C for mais prioritária, pode executar antes.</p>
-            </div>
-
-            <div class="policy-result">
-              <strong>SRTF</strong>
-              <div class="mini-timeline">
-                <span class="process-b">B</span>
-                <span class="process-c">C</span>
-                <span class="process-a">A</span>
-              </div>
-              <p>C pode ser escolhida por possuir rajada curta estimada.</p>
-            </div>
-
-            <div class="policy-result">
-              <strong>Justiça proporcional</strong>
-              <div class="mini-timeline">
-                <span class="process-b">B</span>
-                <span class="process-a">A</span>
-                <span class="process-c">C</span>
-              </div>
-              <p>A decisão considera pesos e serviço já recebido.</p>
-            </div>
+              <p>Aos 2 ms, C precisa de 1 ms e A ainda precisa de 4 ms. C executa primeiro; no empate seguinte, A continua.</p>
+            </section>
           </div>
 
-          <div class="bottom-message">
-            Não existe política universalmente melhor: sistemas interativos,
-            servidores, lotes e tarefas de tempo real possuem objetivos diferentes.
+          <div class="highlight-strip">
+            O mesmo conjunto de tarefas pode ter tempos de espera diferentes conforme a política.
           </div>
+          <p class="simulation-note">SRTF depende de conhecer ou estimar a duração das próximas rajadas. As linhas do tempo são didáticas, não medições do laboratório.</p>
         </article>
 
         <!-- Slide 12 -->
         <article v-else-if="slideAtual === 11" key="slide-12" class="slide">
           <div class="slide-heading">
-            <span class="eyebrow">CFS</span>
-            <h1>Justiça por tempo virtual</h1>
-            <p class="question">
-              Como dividir a CPU sem depender apenas de uma fila FIFO?
-            </p>
+            <span class="eyebrow">TEMPORIZADOR</span>
+            <h1>Quando o kernel reavalia a execução?</h1>
+            <p class="question">Como o kernel recupera o controle enquanto uma tarefa executa?</p>
           </div>
 
-          <div class="cfs-layout">
+          <div class="scheduler-flow timer-flow">
+            <div class="scheduler-box"><span class="panel-label">1 · USUÁRIO</span><strong>A executa na vCPU</strong></div>
+            <div class="flow-arrow">→</div>
+            <div class="scheduler-box"><span class="panel-label">2 · EVENTO</span><strong>Temporizador gera um tick</strong></div>
+            <div class="flow-arrow">→</div>
+            <div class="scheduler-box"><span class="panel-label">3 · KERNEL</span><strong>Contabiliza o tempo de A</strong></div>
+            <div class="flow-arrow">→</div>
+            <div class="scheduler-box"><span class="panel-label">4 · DECISÃO</span><strong>A continua ou outra tarefa executa</strong></div>
+          </div>
+
+          <div class="comparison-grid timer-details">
             <section class="panel">
-              <span class="panel-label">TAREFAS PRONTAS</span>
-
-              <div class="vruntime-list">
-                <div>
-                  <span class="process-b">B</span>
-                  <strong>vruntime: 36</strong>
-                  <small>menor valor</small>
-                </div>
-
-                <div>
-                  <span class="process-a">A</span>
-                  <strong>vruntime: 40</strong>
-                  <small>recebeu mais serviço virtual</small>
-                </div>
-
-                <div class="disabled">
-                  <span class="process-c">C</span>
-                  <strong>em espera</strong>
-                  <small>não participa</small>
-                </div>
-              </div>
+              <span class="panel-label">FREQUÊNCIA NOMINAL DO TICK</span>
+              <h2>CONFIG_HZ</h2>
+              <code>Exemplo: CONFIG_HZ=250 → 1000 / 250 = 4 ms</code>
+              <p>É uma configuração do kernel, não a frequência em GHz da CPU física.</p>
+              <code>grep '^CONFIG_HZ=' /boot/config-$(uname -r)</code>
             </section>
-
-            <section class="panel cfs-choice">
-              <span class="panel-label">DECISÃO DO CFS</span>
-              <h2>Menor vruntime</h2>
-              <div class="selection-ring process-b">B</div>
-              <p>
-                O CFS tende a escolher a tarefa pronta que recebeu menos serviço
-                virtual proporcionalmente.
-              </p>
+            <section class="panel">
+              <span class="panel-label">REAVALIAÇÃO</span>
+              <h2>O tick não obriga uma troca</h2>
+              <p>O kernel pode manter A. Bloqueio, término e despertar também podem provocar avaliações.</p>
+              <p>Em algumas configurações, ticks podem ser suprimidos em certas situações.</p>
             </section>
           </div>
-
-          <div class="formula-strip">
-            <code>Δvruntime ≈ Δtempo_real × (1024 / peso)</code>
-          </div>
-
-          <div class="three-columns">
-            <div class="panel">
-              <span class="panel-label">vruntime</span>
-              <p>Tempo de CPU normalizado pelo peso da tarefa.</p>
-            </div>
-
-            <div class="panel">
-              <span class="panel-label">PESO</span>
-              <p>Representa a participação proporcional esperada.</p>
-            </div>
-
-            <div class="panel">
-              <span class="panel-label">PREEMPÇÃO</span>
-              <p>Permite reavaliar a decisão para preservar justiça.</p>
-            </div>
-          </div>
+          <p class="simulation-note">250 Hz é apenas um exemplo; a configuração e os intervalos observados dependem do kernel e do ambiente virtual.</p>
         </article>
 
         <!-- Slide 13 -->
         <article v-else-if="slideAtual === 12" key="slide-13" class="slide">
           <div class="slide-heading">
-            <span class="eyebrow">CFS E NICE</span>
-            <h1>Prioridade altera a proporção de CPU</h1>
-            <p class="question">
-              Por que A recebe mais CPU que B com nice 0 e nice 10?
-            </p>
+            <span class="eyebrow">CFS · CONCEITOS</span>
+            <h1>Justiça por tempo virtual</h1>
+            <p class="question">Como o CFS distribui a CPU quando as tarefas têm prioridades diferentes?</p>
           </div>
 
-          <div class="weight-layout">
+          <div class="comparison-grid cfs-concept-layout">
             <section class="panel">
-              <span class="panel-label">ENTRADAS</span>
-
-              <div class="weight-rows">
-                <div class="weight-row process-a">
-                  <span>Processo A</span>
-                  <strong>nice 0</strong>
-                  <b>peso 1024</b>
-                </div>
-
-                <div class="weight-row process-b">
-                  <span>Processo B</span>
-                  <strong>nice 10</strong>
-                  <b>peso 110</b>
-                </div>
-              </div>
-
-              <p>
-                O kernel mapeia o valor de <code>nice</code> para uma tabela de
-                pesos. Nice não é uma porcentagem direta.
-              </p>
+              <span class="panel-label">NICE E PESO</span>
+              <p>O kernel associa cada valor de nice a um peso. Um peso maior representa uma participação proporcional maior na disputa pela CPU.</p>
+              <table>
+                <thead><tr><th>Nice</th><th>Peso</th></tr></thead>
+                <tbody>
+                  <tr v-for="nice in [-20, -10, 0, 10, 19]" :key="nice">
+                    <td>{{ nice }}</td><td>{{ pesoDeNice(nice) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+              <details class="nice-details">
+                <summary>Ver tabela completa: nice −20 a +19</summary>
+                <table>
+                  <thead><tr><th>Nice</th><th>Peso</th><th>Nice</th><th>Peso</th></tr></thead>
+                  <tbody>
+                    <tr v-for="linha in linhasPesos" :key="linha.niceA">
+                      <td>{{ linha.niceA }}</td><td>{{ linha.pesoA }}</td>
+                      <td>{{ linha.niceB }}</td><td>{{ linha.pesoB }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </details>
             </section>
 
-            <section class="panel calculation-panel">
-              <span class="panel-label">PARTICIPAÇÃO ESPERADA</span>
-
-              <code>A = 1024 / (1024 + 110) = 90,3%</code>
-              <code>B = 110 / (1024 + 110) = 9,7%</code>
-
-              <div class="share-bars">
-                <span class="share-a">A — 90,3%</span>
-                <span class="share-b">B — 9,7%</span>
+            <section class="panel">
+              <span class="panel-label">VRUNTIME</span>
+              <h2>Tempo de CPU ajustado pelo peso</h2>
+              <div class="vruntime-example">
+                <code>Δvruntime ≈ Δtempo de CPU × 1024 / peso</code>
+                <code>nice 0 · 1 ms → 1 × 1024 / 1024 = 1 ms</code>
+                <code>nice 10 · 1 ms → 1 × 1024 / 110 ≈ 9,31 ms</code>
               </div>
+              <p>Para o mesmo tempo de CPU, a tarefa de peso menor acumula vruntime mais rapidamente.</p>
+              <p>Em linhas gerais, o CFS favorece a tarefa pronta com o menor vruntime.</p>
             </section>
           </div>
-
-          <div class="vruntime-example">
-            <span class="panel-label">EXEMPLO COM 1 ms DE EXECUÇÃO</span>
-
-            <div>
-              <strong>A:</strong>
-              <code>Δvruntime = 1 × (1024 / 1024) = 1,00</code>
-            </div>
-
-            <div>
-              <strong>B:</strong>
-              <code>Δvruntime = 1 × (1024 / 110) = 9,31</code>
-            </div>
-          </div>
-
-          <p class="bottom-message">
-            B continua executando. Ele não está em inanição: possui menor
-            participação proporcional, mas não é removido permanentemente da disputa.
-          </p>
+          <div class="highlight-strip">O CFS busca uma distribuição proporcional de CPU ao longo do tempo.</div>
         </article>
 
         <!-- Slide 14 -->
         <article v-else-if="slideAtual === 13" key="slide-14" class="slide">
           <div class="slide-heading">
-            <span class="eyebrow">EEVDF</span>
-            <h1>Elegibilidade e prazo virtual</h1>
-            <p class="question">
-              Antes de escolher a próxima tarefa, quais tarefas podem disputar a CPU?
-            </p>
+            <span class="eyebrow">CFS · SIMULAÇÃO</span>
+            <h1>Observe a distribuição de CPU</h1>
+            <p class="question">Como o nice altera a parcela ideal e o avanço do vruntime?</p>
           </div>
 
-          <div class="eevdf-flow">
-            <div class="eevdf-step">
-              <span>1</span>
-              <strong>Serviço ideal</strong>
-              <p>CPU que cada tarefa deveria receber pelo seu peso.</p>
+          <div class="simulator panel">
+            <div class="simulator-top">
+              <span class="panel-label">A, B E C SEMPRE PRONTOS · UMA VCPU</span>
+              <div class="simulator-presets">
+                <button type="button" @click="selecionarCenario('cfs', false)">Pesos iguais</button>
+                <button type="button" @click="selecionarCenario('cfs', true)">B com nice 10</button>
+              </div>
             </div>
-
-            <div class="flow-arrow">→</div>
-
-            <div class="eevdf-step">
-              <span>2</span>
-              <strong>lag</strong>
-              <p>Diferença entre serviço ideal e serviço recebido.</p>
+            <div class="simulator-table-wrap">
+              <table>
+                <thead><tr><th>Processo</th><th>Nice</th><th>Peso</th><th>Parcela ideal</th><th>CPU recebida</th><th>Vruntime</th></tr></thead>
+                <tbody>
+                  <tr v-for="(tarefa, indice) in simulacoes.cfs.tarefas" :key="tarefa.nome">
+                    <td :style="{ color: corProcesso(tarefa.nome) }">{{ tarefa.nome }}</td>
+                    <td>
+                      <select v-model.number="configuracoes.cfs[indice].nice" :aria-label="'Nice do processo ' + tarefa.nome">
+                        <option v-for="nice in valoresNice" :key="nice" :value="nice">{{ nice }}</option>
+                      </select>
+                    </td>
+                    <td>{{ tarefa.peso }}</td>
+                    <td>{{ formatarNumero(parcelaIdeal('cfs', tarefa) * 100) }}%</td>
+                    <td>{{ tarefa.cpu }} ms</td>
+                    <td>{{ formatarNumero(tarefa.vruntime) }} ms</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
-
-            <div class="flow-arrow">→</div>
-
-            <div class="eevdf-step">
-              <span>3</span>
-              <strong>Elegibilidade</strong>
-              <p>Tarefas com lag positivo ou zero podem disputar.</p>
+            <div class="simulator-share" aria-label="Participação ideal de CPU">
+              <span v-for="tarefa in simulacoes.cfs.tarefas" :key="tarefa.nome" :style="{ flex: tarefa.peso, backgroundColor: corProcesso(tarefa.nome) }" :title="tarefa.nome + ': ' + formatarNumero(parcelaIdeal('cfs', tarefa) * 100) + '%'"></span>
             </div>
-
-            <div class="flow-arrow">→</div>
-
-            <div class="eevdf-step">
-              <span>4</span>
-              <strong>Prazo virtual</strong>
-              <p>Menor prazo virtual vence entre as elegíveis.</p>
+            <div class="simulator-result" aria-live="polite">
+              <span>Tempo simulado: <strong>{{ simulacoes.cfs.tempo }} ms</strong></span>
+              <span v-if="escolherTarefa('cfs')">Próxima escolha simplificada: <strong>{{ escolherTarefa('cfs').nome }}</strong> · menor vruntime</span>
+              <span v-if="simulacoes.cfs.ultimo">
+                Último passo: {{ simulacoes.cfs.ultimo.nome }} ·
+                {{ formatarNumero(simulacoes.cfs.ultimo.anterior) }} + {{ formatarNumero(simulacoes.cfs.ultimo.incremento) }}
+                = {{ formatarNumero(simulacoes.cfs.ultimo.atual) }} ms virtuais
+              </span>
             </div>
-          </div>
-
-          <div class="lag-table panel">
-            <span class="panel-label">DECISÃO DIDÁTICA</span>
-
-            <table>
-              <thead>
-                <tr>
-                  <th>Processo</th>
-                  <th>lag</th>
-                  <th>Elegível?</th>
-                  <th>Prazo virtual</th>
-                </tr>
-              </thead>
-
-              <tbody>
-                <tr>
-                  <td class="process-a">A</td>
-                  <td>+4</td>
-                  <td>Sim</td>
-                  <td>135</td>
-                </tr>
-
-                <tr class="disabled">
-                  <td class="process-b">B</td>
-                  <td>-4</td>
-                  <td>Não</td>
-                  <td>—</td>
-                </tr>
-
-                <tr>
-                  <td class="process-c">C</td>
-                  <td>+1</td>
-                  <td>Sim</td>
-                  <td>118</td>
-                </tr>
-              </tbody>
-            </table>
-
-            <p>
-              C é escolhida: está elegível e possui o menor prazo virtual.
-            </p>
-          </div>
-
-          <div class="highlight-strip">
-            <strong>lag não é tempo de espera.</strong>
-            É a diferença entre o serviço ideal e o serviço que a tarefa recebeu.
+            <div class="simulator-timeline" aria-label="Últimos 30 passos">
+              <span v-for="(nome, indice) in simulacoes.cfs.historico" :key="indice" :style="{ backgroundColor: corProcesso(nome) }">{{ nome }}</span>
+              <small v-if="!simulacoes.cfs.historico.length">A linha do tempo aparecerá aqui.</small>
+            </div>
+            <div class="simulation-controls">
+              <button type="button" @click="alternarSimulacao('cfs')">{{ simulacoes.cfs.ativa ? 'Pausar' : 'Iniciar' }}</button>
+              <button type="button" @click="executarPasso('cfs')" :disabled="simulacoes.cfs.ativa">Próximo passo</button>
+              <button type="button" @click="reiniciarSimulacao('cfs')">Reiniciar</button>
+              <label>Velocidade
+                <select v-model.number="simulacoes.cfs.velocidade">
+                  <option :value="1500">Lenta</option><option :value="700">Normal</option><option :value="300">Rápida</option>
+                </select>
+              </label>
+            </div>
+            <p class="simulation-note">Cada passo representa 1 ms simulado. Mudar o nice reinicia o histórico. A barra mostra a parcela ideal, não a medida. A escolha e a preempção são simplificadas; não reproduzem todos os detalhes do kernel.</p>
           </div>
         </article>
 
         <!-- Slide 15 -->
         <article v-else-if="slideAtual === 14" key="slide-15" class="slide">
           <div class="slide-heading">
-            <span class="eyebrow">EEVDF EM AÇÃO</span>
-            <h1>A, B e C em uma decisão completa</h1>
-            <p class="question">
-              Como lag e prazo virtual mudam a cada decisão do escalonador?
-            </p>
+            <span class="eyebrow">EEVDF · CONCEITOS</span>
+            <h1>Do lag ao prazo virtual</h1>
+            <p class="question">Como interpretar os cálculos usados para escolher uma tarefa?</p>
           </div>
 
-          <div class="eevdf-decisions">
-            <section class="decision-card">
-              <span class="panel-label">DECISÃO 1</span>
-              <h2>C é selecionada</h2>
-
-              <div class="decision-values">
-                <span class="process-a">A: lag +3 · VD 130</span>
-                <span class="process-b muted">B: lag -2 · inelegível</span>
-                <span class="process-c">C: lag +1 · VD 118</span>
+          <div class="eevdf-concept-grid">
+            <section class="panel eevdf-concept-card">
+              <span class="panel-label">1 · LAG E ELEGIBILIDADE</span>
+              <h2>Quem pode disputar?</h2>
+              <p>O lag indica se a tarefa está atrasada ou adiantada em relação à sua parcela justa de CPU.</p>
+              <div class="eevdf-concept-formula">
+                <code>lag didático = serviço ideal − CPU recebida</code>
+                <small>Exemplo: A teria direito a 3 ms, mas recebeu 2 ms.</small>
+                <code>lag de A = 3 − 2 = +1 ms</code>
               </div>
-
-              <strong>C possui o menor prazo virtual elegível.</strong>
+              <p><strong>Lag ≥ 0:</strong> elegível. <strong>Lag &lt; 0:</strong> não elegível nessa escolha.</p>
             </section>
 
-            <section class="decision-card">
-              <span class="panel-label">DECISÃO 2</span>
-              <h2>A é selecionada</h2>
-
-              <div class="decision-values">
-                <span class="process-a">A: lag +3 · VD 130</span>
-                <span class="process-b muted">B: lag -1 · inelegível</span>
-                <span class="process-c muted">C: lag -1 · inelegível</span>
+            <section class="panel eevdf-concept-card">
+              <span class="panel-label">2 · FATIA VIRTUAL</span>
+              <h2>Quanto vale a fatia?</h2>
+              <p>A fatia de execução é convertida em tempo virtual conforme o peso da tarefa.</p>
+              <div class="eevdf-concept-formula">
+                <code>fatia virtual ≈ fatia × 1024 / peso</code>
+                <small>Exemplo hipotético: nice 0, peso 1024 e fatia de 2 ms.</small>
+                <code>2 × 1024 / 1024 = 2 ms virtuais</code>
               </div>
-
-              <strong>A é a única tarefa elegível.</strong>
+              <p>Uma fatia menor pode aproximar o prazo virtual; a escolha também depende da elegibilidade.</p>
             </section>
 
-            <section class="decision-card">
-              <span class="panel-label">DECISÃO 3</span>
-              <h2>C é selecionada novamente</h2>
-
-              <div class="decision-values">
-                <span class="process-a muted">A: lag -1 · inelegível</span>
-                <span class="process-b">B: lag +2 · VD 126</span>
-                <span class="process-c">C: lag +1 · VD 123</span>
+            <section class="panel eevdf-concept-card">
+              <span class="panel-label">3 · PRAZO VIRTUAL</span>
+              <h2>Quem vem primeiro?</h2>
+              <p>Entre as tarefas elegíveis, o modelo seleciona a que possui o menor prazo virtual.</p>
+              <div class="eevdf-concept-formula">
+                <code>prazo = vruntime da tarefa ao definir o prazo + fatia virtual</code>
+                <small>Exemplo: A tem vruntime de 2 ms virtuais ao definir o prazo.</small>
+                <code>2 + 2 = 4 ms virtuais</code>
               </div>
-
-              <strong>C vence por possuir o menor prazo virtual.</strong>
+              <p>É uma referência de ordenação, não um horário real nem uma garantia de tempo real.</p>
             </section>
           </div>
 
-          <div class="formula-strip">
-            <code>lag = serviço ideal − serviço recebido</code>
+          <div class="highlight-strip">
+            <strong>EEVDF:</strong> calcula a elegibilidade pelo lag e compara os prazos virtuais das tarefas elegíveis.
           </div>
-
-          <p class="bottom-message">
-            Os valores são didáticos. O objetivo é visualizar que tarefas
-            inelegíveis não somem: elas recuperam elegibilidade à medida que as
-            demais recebem serviço.
+          <p class="simulation-note">
+            Exemplos didáticos: o lag do Linux usa uma referência virtual ponderada; os valores de fatia são hipotéticos.
+            O prazo usa o vruntime no momento em que é definido ou renovado.
           </p>
         </article>
 
         <!-- Slide 16 -->
         <article v-else-if="slideAtual === 15" key="slide-16" class="slide">
+          <div class="slide-heading">
+            <span class="eyebrow">EEVDF · SIMULAÇÃO</span>
+            <h1>Elegibilidade e prazo virtual</h1>
+            <p class="question">Como peso, lag e fatia hipotética influenciam a próxima escolha?</p>
+          </div>
+
+          <div class="simulator panel">
+            <div class="simulator-top">
+              <span class="panel-label">A, B E C SEMPRE PRONTOS · UMA VCPU</span>
+              <div class="simulator-presets">
+                <button type="button" @click="selecionarCenario('eevdf', false)">Pesos iguais</button>
+                <button type="button" @click="selecionarCenario('eevdf', true)">B com nice 10</button>
+              </div>
+            </div>
+            <div class="simulator-table-wrap">
+              <table>
+                <thead><tr><th>Processo</th><th>Nice</th><th>Peso</th><th>Fatia*</th><th>Parcela</th><th>Serviço ideal</th><th>CPU</th><th>Vruntime</th><th>Lag*</th><th>Elegível</th><th>Prazo*</th></tr></thead>
+                <tbody>
+                  <tr v-for="(tarefa, indice) in simulacoes.eevdf.tarefas" :key="tarefa.nome" :class="{ 'simulation-ineligible': !tarefaElegivel('eevdf', tarefa) }">
+                    <td :style="{ color: corProcesso(tarefa.nome) }">{{ tarefa.nome }}</td>
+                    <td><select v-model.number="configuracoes.eevdf[indice].nice" :aria-label="'Nice do processo ' + tarefa.nome"><option v-for="nice in valoresNice" :key="nice" :value="nice">{{ nice }}</option></select></td>
+                    <td>{{ tarefa.peso }}</td>
+                    <td><select v-model.number="configuracoes.eevdf[indice].fatia" :aria-label="'Fatia hipotética do processo ' + tarefa.nome"><option v-for="fatia in [1, 2, 4, 8]" :key="fatia" :value="fatia">{{ fatia }} ms</option></select></td>
+                    <td>{{ formatarNumero(parcelaIdeal('eevdf', tarefa) * 100) }}%</td>
+                    <td>{{ formatarNumero(simulacoes.eevdf.tempo * parcelaIdeal('eevdf', tarefa)) }} ms</td>
+                    <td>{{ tarefa.cpu }} ms</td>
+                    <td>{{ formatarNumero(tarefa.vruntime) }}</td>
+                    <td>{{ formatarNumero(lagDidatico('eevdf', tarefa)) }}</td>
+                    <td>{{ tarefaElegivel('eevdf', tarefa) ? 'Sim' : 'Não' }}</td>
+                    <td :title="'Base virtual ' + formatarNumero(tarefa.basePrazo) + ' + fatia virtual ' + formatarNumero(tarefa.fatia * 1024 / tarefa.peso)">{{ formatarNumero(tarefa.prazo) }}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="simulator-share" aria-label="Participação ideal de CPU">
+              <span v-for="tarefa in simulacoes.eevdf.tarefas" :key="tarefa.nome" :style="{ flex: tarefa.peso, backgroundColor: corProcesso(tarefa.nome) }" :title="tarefa.nome + ': ' + formatarNumero(parcelaIdeal('eevdf', tarefa) * 100) + '%'"></span>
+            </div>
+            <div class="simulator-result" aria-live="polite">
+              <span>Tempo simulado: <strong>{{ simulacoes.eevdf.tempo }} ms</strong></span>
+              <span v-if="escolherTarefa('eevdf')">Próxima escolha simplificada: <strong>{{ escolherTarefa('eevdf').nome }}</strong> · elegível e menor prazo</span>
+              <span v-if="simulacoes.eevdf.ultimo">
+                Último passo: {{ simulacoes.eevdf.ultimo.nome }} · lag antes {{ formatarNumero(simulacoes.eevdf.ultimo.lagAntes) }} ms · prazo usado {{ formatarNumero(simulacoes.eevdf.ultimo.prazoEscolhido) }} ·
+                Δvruntime = {{ formatarNumero(simulacoes.eevdf.ultimo.incremento) }}
+              </span>
+            </div>
+            <div class="simulator-timeline" aria-label="Últimos 30 passos">
+              <span v-for="(nome, indice) in simulacoes.eevdf.historico" :key="indice" :style="{ backgroundColor: corProcesso(nome) }">{{ nome }}</span>
+              <small v-if="!simulacoes.eevdf.historico.length">A linha do tempo aparecerá aqui.</small>
+            </div>
+            <div class="simulation-controls">
+              <button type="button" @click="alternarSimulacao('eevdf')">{{ simulacoes.eevdf.ativa ? 'Pausar' : 'Iniciar' }}</button>
+              <button type="button" @click="executarPasso('eevdf')" :disabled="simulacoes.eevdf.ativa">Próximo passo</button>
+              <button type="button" @click="reiniciarSimulacao('eevdf')">Reiniciar</button>
+              <label>Velocidade
+                <select v-model.number="simulacoes.eevdf.velocidade">
+                  <option :value="1500">Lenta</option><option :value="700">Normal</option><option :value="300">Rápida</option>
+                </select>
+              </label>
+            </div>
+            <p class="simulation-note">* Valores hipotéticos: lag em ms de serviço (ideal − recebido), fatia em ms e prazo em unidades virtuais. A fatia não é medida nem atribuída por ser periódica. O prazo é renovado ao atingir a fatia neste modelo discreto. Alterar nice ou fatia reinicia a simulação.</p>
+          </div>
+        </article>
+
+
+        <!-- Slide 17 -->
+        <article v-else-if="slideAtual === 16" key="slide-17" class="slide">
           <div class="slide-heading">
             <span class="eyebrow">COMPARAÇÃO</span>
             <h1>CFS e EEVDF: duas formas de selecionar tarefas</h1>
@@ -1403,8 +1688,8 @@ free(vetor);</code></pre>
           </div>
         </article>
 
-        <!-- Slide 17 -->
-        <article v-else-if="slideAtual === 16" key="slide-17" class="slide">
+        <!-- Slide 18 -->
+        <article v-else-if="slideAtual === 17" key="slide-18" class="slide">
           <div class="slide-heading">
             <span class="eyebrow">AMBIENTE EXPERIMENTAL</span>
             <h1>Uma VM, dois kernels</h1>
@@ -1451,8 +1736,8 @@ free(vetor);</code></pre>
           </div>
         </article>
 
-        <!-- Slide 18 -->
-        <article v-else-if="slideAtual === 17" key="slide-18" class="slide">
+        <!-- Slide 19 -->
+        <article v-else-if="slideAtual === 18" key="slide-19" class="slide">
           <div class="slide-heading">
             <span class="eyebrow">AFINIDADE DE CPU</span>
             <h1>Por que todos disputam a vCPU 0?</h1>
@@ -1512,8 +1797,8 @@ free(vetor);</code></pre>
           </div>
         </article>
 
-        <!-- Slide 19 -->
-        <article v-else-if="slideAtual === 18" key="slide-19" class="slide">
+        <!-- Slide 20 -->
+        <article v-else-if="slideAtual === 19" key="slide-20" class="slide">
           <div class="slide-heading">
             <span class="eyebrow">CARGAS DE TRABALHO</span>
             <h1>Dois comportamentos para observar o escalonador</h1>
@@ -1564,8 +1849,8 @@ free(vetor);</code></pre>
           </div>
         </article>
 
-        <!-- Slide 20 -->
-        <article v-else-if="slideAtual === 19" key="slide-20" class="slide">
+        <!-- Slide 21 -->
+        <article v-else-if="slideAtual === 20" key="slide-21" class="slide">
           <div class="slide-heading">
             <span class="eyebrow">PROGRAMA 1</span>
             <h1>cpu_bound_worker: carga contínua de CPU</h1>
@@ -1628,8 +1913,8 @@ while (tempo_decorrido &lt; duracao) {
           </div>
         </article>
 
-        <!-- Slide 21 -->
-        <article v-else-if="slideAtual === 20" key="slide-21" class="slide">
+        <!-- Slide 22 -->
+        <article v-else-if="slideAtual === 21" key="slide-22" class="slide">
           <div class="slide-heading">
             <span class="eyebrow">PROGRAMA 2</span>
             <h1>io_bound_simulator: trabalho periódico e espera</h1>
@@ -1678,8 +1963,8 @@ while (tempo_decorrido &lt; duracao) {
           </div>
         </article>
 
-        <!-- Slide 22 -->
-        <article v-else-if="slideAtual === 21" key="slide-22" class="slide">
+        <!-- Slide 23 -->
+        <article v-else-if="slideAtual === 22" key="slide-23" class="slide">
           <div class="slide-heading">
             <span class="eyebrow">AUTOMAÇÃO</span>
             <h1>Scripts Bash: da execução ao resultado estruturado</h1>
@@ -1733,8 +2018,8 @@ while (tempo_decorrido &lt; duracao) {
           </div>
         </article>
 
-        <!-- Slide 23 -->
-        <article v-else-if="slideAtual === 22" key="slide-23" class="slide">
+        <!-- Slide 24 -->
+        <article v-else-if="slideAtual === 23" key="slide-24" class="slide">
           <div class="slide-heading">
             <span class="eyebrow">EXPERIMENTO 1</span>
             <h1>Divisão equilibrada entre duas cargas CPU-bound</h1>
@@ -1763,10 +2048,10 @@ while (tempo_decorrido &lt; duracao) {
             <section class="panel">
               <span class="panel-label">EEVDF</span>
               <code>serviço ideal_A = serviço ideal_B</code>
-              <code>lag_A ≈ lag_B</code>
+              <code>parcela ideal_A = parcela ideal_B = 50%</code>
               <p>
-                Pesos iguais produzem a mesma expectativa de serviço proporcional
-                entre as tarefas prontas.
+                Pesos iguais produzem parcelas ideais iguais; os lags podem
+                ser diferentes em cada instante.
               </p>
             </section>
           </div>
@@ -1782,8 +2067,8 @@ while (tempo_decorrido &lt; duracao) {
           </p>
         </article>
 
-        <!-- Slide 24 -->
-        <article v-else-if="slideAtual === 23" key="slide-24" class="slide">
+        <!-- Slide 25 -->
+        <article v-else-if="slideAtual === 24" key="slide-25" class="slide">
           <div class="slide-heading">
             <span class="eyebrow">EXPERIMENTO 2</span>
             <h1>Pesos diferentes e participação proporcional</h1>
@@ -1833,8 +2118,8 @@ while (tempo_decorrido &lt; duracao) {
           </p>
         </article>
 
-        <!-- Slide 25 -->
-        <article v-else-if="slideAtual === 24" key="slide-25" class="slide">
+        <!-- Slide 26 -->
+        <article v-else-if="slideAtual === 25" key="slide-26" class="slide">
           <div class="slide-heading">
             <span class="eyebrow">EXPERIMENTO 3</span>
             <h1>Responsividade de uma tarefa periódica</h1>
@@ -1854,6 +2139,7 @@ while (tempo_decorrido &lt; duracao) {
               <span class="panel-label">C EM ESPERA</span>
               <code>R(t) = { A, B }</code>
               <code>W_total = 2048</code>
+              <p>Participação ideal enquanto A e B disputam a vCPU.</p>
 
               <div class="two-share">
                 <span class="process-a">A: 50%</span>
@@ -1865,6 +2151,7 @@ while (tempo_decorrido &lt; duracao) {
               <span class="panel-label">C PRONTA</span>
               <code>R(t) = { A, B, C }</code>
               <code>W_total = 3072</code>
+              <p>Referência ideal enquanto as três tarefas estão prontas.</p>
 
               <div class="three-share">
                 <span class="process-a">A: 33,3%</span>
@@ -1898,8 +2185,8 @@ while (tempo_decorrido &lt; duracao) {
           </p>
         </article>
 
-        <!-- Slide 26 -->
-        <article v-else-if="slideAtual === 25" key="slide-26" class="slide">
+        <!-- Slide 27 -->
+        <article v-else-if="slideAtual === 26" key="slide-27" class="slide">
           <div class="slide-heading">
             <span class="eyebrow">MEDIÇÃO</span>
             <h1>Coleta de métricas com pidstat</h1>
@@ -1946,8 +2233,8 @@ while (tempo_decorrido &lt; duracao) {
           </p>
         </article>
 
-        <!-- Slide 27 -->
-        <article v-else-if="slideAtual === 26" key="slide-27" class="slide">
+        <!-- Slide 28 -->
+        <article v-else-if="slideAtual === 27" key="slide-28" class="slide">
           <div class="slide-heading">
             <span class="eyebrow">ARQUITETURA DA APLICAÇÃO</span>
             <h1>API, eventos e dashboard em tempo real</h1>
@@ -2012,8 +2299,8 @@ while (tempo_decorrido &lt; duracao) {
           </div>
         </article>
 
-        <!-- Slide 28 -->
-        <article v-else key="slide-28" class="slide">
+        <!-- Slide 29 -->
+        <article v-else key="slide-29" class="slide">
           <div class="slide-heading">
             <span class="eyebrow">VISUALIZAÇÃO</span>
             <h1>Dashboard: da métrica à análise</h1>
@@ -3009,9 +3296,41 @@ pre {
 .state-arrow {
   fill: none;
   stroke: #36d399;
-  stroke-width: 3;
+  stroke-width: 2;
+  opacity: 0.38;
   stroke-linecap: round;
   stroke-linejoin: round;
+  transition: opacity 0.25s ease, stroke-width 0.25s ease;
+}
+
+.state-arrow.arrow-active {
+  opacity: 1;
+  stroke-width: 5;
+  filter: drop-shadow(0 0 5px rgba(30, 215, 96, 0.55));
+}
+
+.simulation-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 1rem;
+}
+
+.simulation-controls button {
+  padding: 0.5rem 0.75rem;
+  border: 1px solid var(--presentation-border-strong);
+  border-radius: 8px;
+  color: var(--presentation-text);
+  background: var(--presentation-surface);
+}
+
+.simulation-controls button:hover:not(:disabled) {
+  border-color: var(--presentation-accent);
+}
+
+.simulation-controls button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .state-node {
@@ -3135,6 +3454,146 @@ g.active .state-node {
   font-size: 0.78rem;
   line-height: 1.5;
 }
+
+.policy-trigger {
+  width: 100%;
+  color: var(--presentation-text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.policy-trigger:hover,
+.policy-trigger:focus-visible {
+  border-color: var(--presentation-accent);
+  outline: 2px solid transparent;
+}
+
+.policy-trigger small {
+  display: block;
+  margin-top: 0.65rem;
+  color: var(--presentation-accent);
+}
+
+.policy-overlay {
+  --presentation-border: rgba(226, 232, 240, 0.12);
+  --presentation-muted: #94a3b8;
+  --presentation-accent: #1ed760;
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(0, 0, 0, 0.78);
+}
+
+.policy-dialog {
+  width: min(620px, 100%);
+  max-height: min(85vh, 800px);
+  overflow-y: auto;
+  padding: 1.5rem;
+  border: 1px solid var(--presentation-border);
+  border-radius: 18px;
+  color: #f8fafc;
+  background: #101a14;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+}
+
+.policy-dialog-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+}
+
+.policy-dialog-header h2 {
+  margin: 0;
+}
+
+.policy-dialog-header button {
+  width: 38px;
+  height: 38px;
+  border: 1px solid var(--presentation-border);
+  border-radius: 9px;
+  color: #f8fafc;
+  font-size: 1.5rem;
+  background: transparent;
+  cursor: pointer;
+}
+
+.policy-dialog dl {
+  display: grid;
+  gap: 0.4rem;
+  margin: 1.25rem 0 0;
+}
+
+.policy-dialog dt {
+  margin-top: 0.6rem;
+  color: var(--presentation-accent);
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.policy-dialog dd {
+  margin: 0;
+  color: #e2e8f0;
+  line-height: 1.5;
+}
+
+.policy-comparison,
+.timer-details {
+  margin-top: 1rem;
+}
+
+.policy-comparison .panel,
+.timer-details .panel {
+  padding: 1.1rem;
+}
+
+.policy-comparison p,
+.timer-details p {
+  color: var(--presentation-muted);
+  line-height: 1.5;
+}
+
+.timeline-with-times {
+  margin: 1.2rem 0 2rem;
+}
+
+.timeline-blocks {
+  display: flex;
+  overflow: hidden;
+  height: 48px;
+  border-radius: 9px;
+}
+
+.timeline-blocks span {
+  display: grid;
+  min-width: 0;
+  place-items: center;
+  color: #07100c;
+  font-weight: 800;
+}
+
+.timeline-blocks .process-a { background: #60a5fa; }
+.timeline-blocks .process-b { background: #f59e0b; }
+.timeline-blocks .process-c { background: #34d399; }
+
+.timeline-labels {
+  position: relative;
+  color: var(--presentation-muted);
+  font-size: 0.72rem;
+}
+
+.timeline-labels span {
+  position: absolute;
+  top: 0.35rem;
+  transform: translateX(-50%);
+}
+
+.timeline-labels span:first-child { transform: none; }
+.timeline-labels span:last-child { transform: translateX(-100%); }
 
 .metrics-row {
   display: flex;
@@ -4035,7 +4494,195 @@ th {
   transform: translateX(-16px);
 }
 
+.cfs-concept-layout > .panel {
+  padding: 1.25rem;
+}
+
+.eevdf-concept-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+.eevdf-concept-card {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.4rem;
+}
+
+.eevdf-concept-card h2 {
+  margin: 0;
+}
+
+.eevdf-concept-card p {
+  margin: 0;
+  color: var(--presentation-muted);
+  line-height: 1.5;
+}
+
+.eevdf-concept-card .panel-label {
+  margin-bottom: 0;
+}
+
+.eevdf-concept-card p strong {
+  color: var(--presentation-text);
+}
+
+.eevdf-concept-formula {
+  display: grid;
+  gap: 0.8rem;
+  padding: 1rem;
+  border: 1px solid var(--presentation-border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.eevdf-concept-formula code {
+  overflow-wrap: anywhere;
+  color: var(--presentation-text);
+}
+
+.eevdf-concept-formula small {
+  color: var(--presentation-muted);
+  line-height: 1.4;
+}
+
+.nice-details {
+  margin-top: 1rem;
+  color: var(--presentation-muted);
+}
+
+.nice-details summary {
+  color: var(--presentation-accent);
+  cursor: pointer;
+}
+
+.nice-details table {
+  margin-top: 0.75rem;
+}
+
+.nice-details th,
+.nice-details td {
+  padding: 0.35rem 0.55rem;
+}
+
+.simulator {
+  padding: 1.15rem;
+}
+
+.simulator-top,
+.simulator-presets,
+.simulator-result {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+}
+
+.simulator-top {
+  justify-content: space-between;
+}
+
+.simulator-presets button,
+.simulator select {
+  padding: 0.42rem 0.55rem;
+  border: 1px solid var(--presentation-border-strong);
+  border-radius: 8px;
+  color: var(--presentation-text);
+  background: #101a14;
+}
+
+.simulator-presets button {
+  cursor: pointer;
+}
+
+.simulator-presets button:hover {
+  border-color: var(--presentation-accent);
+}
+
+.simulator-table-wrap {
+  width: 100%;
+  margin-top: 0.8rem;
+  overflow-x: auto;
+}
+
+.simulator table {
+  min-width: 720px;
+  font-size: 0.8rem;
+}
+
+.simulator th,
+.simulator td {
+  padding: 0.55rem 0.4rem;
+  white-space: nowrap;
+}
+
+.simulator .simulation-ineligible {
+  opacity: 0.62;
+}
+
+.simulator-share {
+  display: flex;
+  overflow: hidden;
+  height: 13px;
+  margin-top: 1rem;
+  border-radius: 999px;
+  background: #243128;
+}
+
+.simulator-share span {
+  min-width: 2px;
+}
+
+.simulator-result {
+  display: grid;
+  gap: 0.4rem;
+  margin-top: 1rem;
+  color: var(--presentation-muted);
+  font-size: 0.82rem;
+}
+
+.simulator-result strong {
+  color: var(--presentation-accent);
+}
+
+.simulator-timeline {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem;
+  min-height: 30px;
+  margin-top: 0.8rem;
+}
+
+.simulator-timeline span {
+  display: grid;
+  width: 27px;
+  height: 27px;
+  place-items: center;
+  border-radius: 5px;
+  color: #07100c;
+  font-size: 0.72rem;
+  font-weight: 800;
+}
+
+.simulator-timeline small {
+  color: var(--presentation-muted);
+}
+
+.simulation-controls label {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--presentation-muted);
+  font-size: 0.8rem;
+}
+
 @media (max-width: 900px) {
+  .eevdf-concept-grid {
+    grid-template-columns: 1fr;
+  }
+
   .cover-grid,
   .architecture-layout,
   .thread-layout,
