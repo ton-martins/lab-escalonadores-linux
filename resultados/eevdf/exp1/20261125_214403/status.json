@@ -1,0 +1,9 @@
+{
+  "status": "concluida",
+  "execucao_id": "20261125_214403",
+  "experimento": "exp1",
+  "escalonador": "eevdf",
+  "kernel": "7.0.0-43-generic",
+  "iniciado_em": "2026-11-25T21:44:03-03:00",
+  "atualizado_em": "2026-11-25T21:44:13-03:00"
+}

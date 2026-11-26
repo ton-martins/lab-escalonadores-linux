@@ -5,7 +5,7 @@ import {
 } from "vue-router";
 
 import Dashboard from "../pages/Dashboard.vue";
-import Apresentacao from "../pages/Apresentacao.vue";
+const Apresentacao = () => import("../pages/Apresentacao/Index.vue");
 
 /** Define as páginas acessíveis pela aplicação. */
 const routes = [

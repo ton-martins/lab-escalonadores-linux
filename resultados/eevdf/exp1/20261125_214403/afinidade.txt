@@ -1,0 +1,2 @@
+pid 30981's current affinity list: 0
+pid 30982's current affinity list: 0

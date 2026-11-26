@@ -6,7 +6,7 @@ const totalSlides = 29;
 
 const slides = [
   "Apresentação",
-  "Arquitetura de Sistemas Operacionais",
+  "Arquitetura de um sistema computacional",
   "Do programa ao processo",
   "Processos e threads",
   "Concorrência e paralelismo",
@@ -15,7 +15,7 @@ const slides = [
   "Proteção e falhas de página",
   "Estados de execução",
   "Fundamentos do escalonamento",
-  "Políticas de escalonamento",
+  "Onde CFS e EEVDF se encaixam",
   "Temporizador e reavaliação",
   "CFS: conceitos e pesos",
   "Simulação do CFS",
@@ -65,11 +65,11 @@ const politicas = [
     limitacao: "Tarefas de baixa prioridade podem esperar demais, dependendo da política.",
   },
   {
-    nome: "SJF / SRTF",
-    descricao: "Favorece a menor rajada de CPU conhecida ou estimada.",
-    funcionamento: "SJF escolhe a menor rajada; SRTF compara o tempo restante e pode trocar a tarefa atual.",
-    preempcao: "SJF é normalmente não preemptivo; SRTF é preemptivo.",
-    exemplo: "Se C precisa de 1 ms e A ainda precisa de 4 ms, SRTF pode escolher C.",
+    nome: "SJF",
+    descricao: "Escolhe a menor rajada conhecida ou estimada.",
+    funcionamento: "A próxima tarefa é a que possui a menor rajada de CPU prevista.",
+    preempcao: "Não preemptivo na versão clássica.",
+    exemplo: "Entre rajadas estimadas de 2 ms e 6 ms, escolhe a de 2 ms.",
     vantagem: "Pode reduzir a espera média de tarefas curtas.",
     limitacao: "O tempo futuro de CPU geralmente precisa ser estimado.",
   },
@@ -83,14 +83,24 @@ const politicas = [
     limitacao: "Uma divisão justa não garante resposta em um prazo rígido.",
   },
   {
-    nome: "Tempo real",
-    descricao: "Reúne políticas que consideram requisitos de tempo.",
-    funcionamento: "Políticas de tempo real são projetadas para lidar com prazos ou prioridades temporais.",
-    preempcao: "Depende da política e da configuração do sistema.",
-    exemplo: "Uma tarefa de controle precisa reagir antes de um prazo definido.",
-    vantagem: "Ajuda a projetar sistemas com resposta temporal previsível.",
-    limitacao: "A política isolada não garante prazo: hardware, carga e configuração também importam.",
+    nome: "SRTF",
+    descricao: "Favorece o menor tempo restante estimado.",
+    funcionamento: "Compara a tarefa atual com as tarefas prontas e pode escolher uma rajada restante menor.",
+    preempcao: "Preemptivo: uma nova tarefa mais curta pode interromper a atual.",
+    exemplo: "Se C precisa de 1 ms e A ainda precisa de 4 ms, C pode executar primeiro.",
+    vantagem: "Pode reduzir a espera média de tarefas curtas.",
+    limitacao: "Depende de estimativas e pode prolongar a espera de tarefas longas.",
   },
+];
+
+const criterios = [
+  { nome: "Utilização da CPU", descricao: "Proporção do tempo em que a CPU está ocupada.", funcionamento: "Indica quanto da capacidade disponível foi usada em um intervalo.", exemplo: "Uma vCPU ocupada por 8 ms em 10 ms tem utilização de 80%.", limitacao: "Alta utilização, isoladamente, não garante boa resposta." },
+  { nome: "Vazão", descricao: "Trabalhos concluídos por unidade de tempo.", funcionamento: "Conta quantos trabalhos terminam em determinado intervalo.", exemplo: "Concluir 20 trabalhos em 10 segundos representa 2 por segundo.", limitacao: "Não informa quanto cada usuário esperou." },
+  { nome: "Tempo de CPU", descricao: "Tempo efetivamente executado pela tarefa.", funcionamento: "Soma os períodos em que a tarefa ocupou a CPU.", exemplo: "Duas execuções de 2 ms totalizam 4 ms de CPU.", limitacao: "É diferente do tempo decorrido no relógio." },
+  { nome: "Tempo de espera", descricao: "Tempo em que a tarefa está pronta aguardando CPU.", funcionamento: "Acumula a espera na fila de prontas.", exemplo: "B fica pronta por 3 ms até receber a CPU.", limitacao: "Não é o mesmo que o tempo bloqueada aguardando I/O." },
+  { nome: "Tempo de resposta", descricao: "Intervalo até o início da resposta observada.", funcionamento: "Mede o tempo entre um evento ou solicitação e o começo da resposta.", exemplo: "Da chegada de uma solicitação até a primeira resposta.", limitacao: "A definição exata depende do evento e da métrica adotados." },
+  { nome: "Tempo de retorno", descricao: "Intervalo entre início e conclusão do trabalho.", funcionamento: "Inclui execução, espera por CPU e possíveis bloqueios.", exemplo: "Um trabalho iniciado em 0 e concluído em 12 ms teve retorno de 12 ms.", limitacao: "Não indica isoladamente a responsividade inicial." },
+  { nome: "Justiça", descricao: "Distribuição coerente com a política e os pesos.", funcionamento: "Compara o serviço recebido com a participação considerada justa.", exemplo: "Duas tarefas prontas de peso igual tendem a receber parcelas semelhantes.", limitacao: "Justiça proporcional não significa tempo igual em qualquer instante." },
 ];
 
 const politicaSelecionada = ref(null);
@@ -282,86 +292,34 @@ watch(() => simulacoes.eevdf.velocidade, () => {
 reiniciarSimulacao("cfs");
 reiniciarSimulacao("eevdf");
 
-const fasesEstados = [
-  {
-    titulo: "Criação",
-    descricao: "O kernel cria as tarefas A, B e C.",
-    tarefas: { A: "criado", B: "criado", C: "criado" },
-    transicao: null,
-  },
-  {
-    titulo: "Fila de prontas",
-    descricao: "As três tarefas estão aptas a disputar a vCPU 0.",
-    tarefas: { A: "pronto", B: "pronto", C: "pronto" },
-    transicao: "admissao",
-  },
-  {
-    titulo: "A executa",
-    descricao: "A ocupa a vCPU 0; B e C aguardam na fila de prontas.",
-    tarefas: { A: "execucao", B: "pronto", C: "pronto" },
-    transicao: "despacho",
-  },
-  {
-    titulo: "Preempção",
-    descricao: "A retorna ao estado pronto e B recebe a vCPU 0.",
-    tarefas: { A: "pronto", B: "execucao", C: "pronto" },
-    transicao: "preempcao",
-  },
-  {
-    titulo: "C executa",
-    descricao: "C recebe CPU para realizar uma pequena rajada de trabalho.",
-    tarefas: { A: "pronto", B: "pronto", C: "execucao" },
-    transicao: "despacho",
-  },
-  {
-    titulo: "C aguarda",
-    descricao: "C chama nanosleep() e entra em espera; A passa a executar.",
-    tarefas: { A: "execucao", B: "pronto", C: "espera" },
-    transicao: "espera",
-  },
-  {
-    titulo: "B executa",
-    descricao: "A é preemptada; B recebe a vCPU enquanto C ainda espera.",
-    tarefas: { A: "pronto", B: "execucao", C: "espera" },
-    transicao: "preempcao",
-  },
-  {
-    titulo: "Despertar de C",
-    descricao: "O tempo de espera termina; C volta a ficar pronta enquanto B continua executando.",
-    tarefas: { A: "pronto", B: "execucao", C: "pronto" },
-    transicao: "despertar",
-  },
-  {
-    titulo: "C retorna à CPU",
-    descricao: "O escalonador seleciona C; B volta a ficar pronta.",
-    tarefas: { A: "pronto", B: "pronto", C: "execucao" },
-    transicao: "despacho",
-  },
-  {
-    titulo: "C finaliza",
-    descricao: "C conclui sua execução; B recebe a vCPU.",
-    tarefas: { A: "pronto", B: "execucao", C: "finalizado" },
-    transicao: "termino",
-  },
-  {
-    titulo: "B finaliza",
-    descricao: "B termina e A passa a executar.",
-    tarefas: { A: "execucao", B: "finalizado", C: "finalizado" },
-    transicao: "termino",
-  },
-  {
-    titulo: "A finaliza",
-    descricao: "A termina; os três processos estão finalizados.",
-    tarefas: { A: "finalizado", B: "finalizado", C: "finalizado" },
-    transicao: "termino",
-  },
-];
-
+const sequenciasEstados = {
+  fcfs: [
+    { tempo: 0, titulo: "A recebe a CPU", descricao: "A e B estavam prontas; C já estava em espera. A é escolhida primeiro.", tarefas: { A: "execucao", B: "pronto", C: "espera" }, fila: ["B"], transicoes: ["despacho"] },
+    { tempo: 2, titulo: "C fica pronta", descricao: "A espera de C termina. Sem preempção, A continua executando e C entra após B na fila.", tarefas: { A: "execucao", B: "pronto", C: "pronto" }, fila: ["B", "C"], transicoes: ["despertar"] },
+    { tempo: 6, titulo: "A termina", descricao: "A conclui seus 6 ms de CPU; B é despachada.", tarefas: { A: "finalizado", B: "execucao", C: "pronto" }, fila: ["C"], transicoes: ["termino", "despacho"] },
+    { tempo: 10, titulo: "B termina", descricao: "B conclui seus 4 ms de CPU; C recebe a vCPU.", tarefas: { A: "finalizado", B: "finalizado", C: "execucao" }, fila: [], transicoes: ["termino", "despacho"] },
+    { tempo: 11, titulo: "C termina", descricao: "C conclui seu 1 ms de CPU; o cenário termina.", tarefas: { A: "finalizado", B: "finalizado", C: "finalizado" }, fila: [], transicoes: ["termino"] },
+  ],
+  rr: [
+    { tempo: 0, titulo: "A recebe a CPU", descricao: "A e B estavam prontas; C já estava em espera. A recebe uma fatia de até 2 ms.", tarefas: { A: "execucao", B: "pronto", C: "espera" }, fila: ["B"], transicoes: ["despacho"] },
+    { tempo: 2, titulo: "C desperta e A é preemptada", descricao: "C entra na fila antes de A voltar ao final; B recebe a vCPU.", tarefas: { A: "pronto", B: "execucao", C: "pronto" }, fila: ["C", "A"], transicoes: ["despertar", "preempcao", "despacho"] },
+    { tempo: 4, titulo: "B é preemptada", descricao: "B usa sua fatia e retorna à fila; C recebe a vCPU.", tarefas: { A: "pronto", B: "pronto", C: "execucao" }, fila: ["A", "B"], transicoes: ["preempcao", "despacho"] },
+    { tempo: 5, titulo: "C termina", descricao: "C conclui seu 1 ms de CPU; A recebe a próxima fatia.", tarefas: { A: "execucao", B: "pronto", C: "finalizado" }, fila: ["B"], transicoes: ["termino", "despacho"] },
+    { tempo: 7, titulo: "A é preemptada", descricao: "A retorna à fila ainda precisando de CPU; B executa.", tarefas: { A: "pronto", B: "execucao", C: "finalizado" }, fila: ["A"], transicoes: ["preempcao", "despacho"] },
+    { tempo: 9, titulo: "B termina", descricao: "B conclui seu trabalho; A recebe a CPU novamente.", tarefas: { A: "execucao", B: "finalizado", C: "finalizado" }, fila: [], transicoes: ["termino", "despacho"] },
+    { tempo: 11, titulo: "A termina", descricao: "A conclui seus 6 ms de CPU; o cenário termina.", tarefas: { A: "finalizado", B: "finalizado", C: "finalizado" }, fila: [], transicoes: ["termino"] },
+  ],
+};
+const intervalosEstados = {
+  fcfs: [{ nome: "A", inicio: 0, fim: 6 }, { nome: "B", inicio: 6, fim: 10 }, { nome: "C", inicio: 10, fim: 11 }],
+  rr: [{ nome: "A", inicio: 0, fim: 2 }, { nome: "B", inicio: 2, fim: 4 }, { nome: "C", inicio: 4, fim: 5 }, { nome: "A", inicio: 5, fim: 7 }, { nome: "B", inicio: 7, fim: 9 }, { nome: "A", inicio: 9, fim: 11 }],
+};
+const modoEstados = ref("fcfs");
+const fasesEstados = computed(() => sequenciasEstados[modoEstados.value]);
 const faseEstado = ref(0);
 const simulacaoAtiva = ref(false);
 let temporizadorEstados;
-
-const faseAtual = computed(() => fasesEstados[faseEstado.value]);
+const faseAtual = computed(() => fasesEstados.value[faseEstado.value]);
 
 function corProcesso(processo) {
   const paleta = [
@@ -406,17 +364,17 @@ function pararSimulacaoEstados() {
 }
 
 function continuarSimulacaoEstados() {
-  if (simulacaoAtiva.value || faseEstado.value === fasesEstados.length - 1) return;
+  if (simulacaoAtiva.value || faseEstado.value === fasesEstados.value.length - 1) return;
   simulacaoAtiva.value = true;
   temporizadorEstados = window.setInterval(() => {
-    if (faseEstado.value < fasesEstados.length - 1) faseEstado.value++;
-    if (faseEstado.value === fasesEstados.length - 1) pararSimulacaoEstados();
+    if (faseEstado.value < fasesEstados.value.length - 1) faseEstado.value++;
+    if (faseEstado.value === fasesEstados.value.length - 1) pararSimulacaoEstados();
   }, 4000);
 }
 
 function mudarFaseEstado(direcao) {
   pararSimulacaoEstados();
-  faseEstado.value = Math.max(0, Math.min(fasesEstados.length - 1, faseEstado.value + direcao));
+  faseEstado.value = Math.max(0, Math.min(fasesEstados.value.length - 1, faseEstado.value + direcao));
 }
 
 function estadoAtivo(estado) {
@@ -470,6 +428,11 @@ function lidarTeclado(evento) {
     irPara(totalSlides - 1);
   }
 }
+
+watch(modoEstados, () => {
+  if (slideAtual.value === 8) iniciarSimulacaoEstados();
+  else faseEstado.value = 0;
+});
 
 watch(slideAtual, (indice) => {
   if (politicaSelecionada.value) fecharPolitica();
@@ -587,67 +550,35 @@ onBeforeUnmount(() => {
         <article v-else-if="slideAtual === 1" key="slide-2" class="slide">
           <div class="slide-heading">
             <span class="eyebrow">FUNDAMENTOS</span>
-            <h1>Arquitetura de um Sistema Operacional</h1>
-            <p class="question">
-              O que acontece entre executar um comando e utilizar a CPU?
-            </p>
+            <h1>Arquitetura de um sistema computacional</h1>
+            <p class="question">Como aplicações, sistema operacional e hardware trabalham juntos?</p>
           </div>
-
           <div class="architecture-layout">
             <div class="architecture-stack">
               <div class="layer application-layer">
-                <span>Espaço do usuário</span>
-                <strong>Aplicações e scripts</strong>
-                <p>Terminal, Bash, compilador, programas e dashboard.</p>
+                <span>ESPAÇO DO USUÁRIO</span><strong>Aplicações e shell</strong>
+                <p>Programas executam instruções em modo usuário; o shell é uma aplicação para interpretar comandos.</p>
               </div>
-
-              <div class="arrow-down">↓ chamadas de sistema</div>
-
+              <div class="arrow-down">↓ solicitações pela interface de chamadas de sistema</div>
               <div class="layer kernel-layer">
-                <span>Modo privilegiado</span>
-                <strong>Kernel Linux</strong>
-
-                <div class="kernel-services">
-                  <span>Processos</span>
-                  <span>Memória</span>
-                  <span>Arquivos</span>
-                  <span>Escalonador</span>
-                  <span>Drivers</span>
-                </div>
+                <span>MODO PRIVILEGIADO</span><strong>Kernel</strong>
+                <div class="kernel-services"><span>Processos</span><span>Memória</span><span>Arquivos</span><span>Escalonamento</span><span>Drivers</span></div>
               </div>
-
-              <div class="arrow-down">↓ acesso controlado</div>
-
+              <div class="arrow-down">↓ gerência e acesso controlado</div>
               <div class="layer hardware-layer">
-                <span>Camada física</span>
-                <strong>Hardware</strong>
-
-                <div class="hardware-items">
-                  <span>CPU</span>
-                  <span>RAM</span>
-                  <span>Disco</span>
-                  <span>Rede</span>
-                  <span>Temporizador</span>
-                </div>
+                <span>RECURSOS FÍSICOS OU VIRTUAIS</span><strong>Hardware</strong>
+                <div class="hardware-items"><span>CPU</span><span>RAM</span><span>Disco</span><span>Rede</span><span>Temporizador</span></div>
               </div>
             </div>
-
-            <aside class="scenario-panel">
-              <span class="panel-label">EXEMPLO PRÁTICO</span>
-              <code>./scripts/exp1.sh 10</code>
-
+            <aside class="panel diagram-explainer">
+              <span class="panel-label">EXEMPLO · INICIAR UM PROGRAMA</span>
               <ol>
-                <li>O Bash interpreta o script.</li>
-                <li>O script solicita execução dos programas.</li>
-                <li>O kernel cria e gerencia as tarefas.</li>
-                <li>O escalonador decide quem recebe CPU.</li>
-                <li>Os programas registram e devolvem resultados.</li>
+                <li>Uma pessoa digita um comando no shell.</li>
+                <li>O shell solicita ao kernel a criação e a execução do programa.</li>
+                <li>O kernel organiza memória, recursos e escalonamento.</li>
+                <li>A CPU executa as instruções do programa.</li>
               </ol>
-
-              <p class="note">
-                Aplicações não controlam diretamente a CPU: elas solicitam
-                serviços ao kernel.
-              </p>
+              <p>A CPU executa instruções comuns da aplicação diretamente; chamadas de sistema são usadas quando ela precisa solicitar serviços ao kernel.</p>
             </aside>
           </div>
         </article>
@@ -657,67 +588,22 @@ onBeforeUnmount(() => {
           <div class="slide-heading">
             <span class="eyebrow">PROCESSOS</span>
             <h1>Do programa ao processo</h1>
-            <p class="question">
-              O que o kernel cria quando um programa começa a executar?
-            </p>
+            <p class="question">O que o kernel administra quando um programa é iniciado?</p>
           </div>
-
           <div class="process-flow">
-            <div class="flow-card executable">
-              <span class="panel-label">ARQUIVO NO DISCO</span>
-              <strong>cpu_bound_worker</strong>
-              <code>binário executável</code>
-            </div>
-
-            <div class="flow-arrow">execve() →</div>
-
-            <div class="flow-card kernel-create">
-              <span class="panel-label">KERNEL</span>
-              <strong>Cria o processo</strong>
-              <p>PID, permissões, contexto e espaço virtual.</p>
-            </div>
-
+            <div class="flow-card executable"><span class="panel-label">PROGRAMA</span><strong>Arquivo executável</strong><p>Instruções e dados armazenados.</p></div>
             <div class="flow-arrow">→</div>
-
-            <div class="flow-card process-box">
-              <span class="panel-label">PROCESSO</span>
-              <strong>PID 8156</strong>
-
-              <div class="memory-regions">
-                <span>Código</span>
-                <span>Dados</span>
-                <span>Área dinâmica</span>
-                <span>Pilha</span>
-              </div>
-
-              <div class="thread-line">
-                <span>Thread principal</span>
-                <span>PC · registradores · pilha</span>
-              </div>
-            </div>
+            <div class="flow-card kernel-create"><span class="panel-label">KERNEL</span><strong>Criação e carregamento</strong><p>Organiza os recursos e a imagem do programa.</p></div>
+            <div class="flow-arrow">→</div>
+            <div class="flow-card process-box"><span class="panel-label">PROCESSO</span><strong>Ambiente de execução</strong><p>Recursos, espaço virtual e uma ou mais threads.</p></div>
           </div>
-
           <div class="three-columns">
-            <div class="panel">
-              <span class="panel-label">CONTEXTO DE SOFTWARE</span>
-              <p>PID, estado, permissões, arquivos abertos e prioridade.</p>
-            </div>
-
-            <div class="panel">
-              <span class="panel-label">ESPAÇO VIRTUAL</span>
-              <p>Endereços lógicos próprios, separados de outros processos.</p>
-            </div>
-
-            <div class="panel">
-              <span class="panel-label">CONTEXTO DE HARDWARE</span>
-              <p>PC, registradores e pilha usados enquanto a thread executa.</p>
-            </div>
+            <section class="panel"><span class="panel-label">CONTEXTO DE SOFTWARE</span><p>Identificação, estado, permissões, prioridade e recursos administrados pelo kernel.</p></section>
+            <section class="panel"><span class="panel-label">ESPAÇO DE ENDEREÇAMENTO</span><p>Regiões virtuais para código, dados, área dinâmica e pilhas.</p></section>
+            <section class="panel"><span class="panel-label">CONTEXTO DE EXECUÇÃO</span><p>Cada thread possui posição no código e registradores; seu estado é preservado para retomada.</p></section>
           </div>
-
-          <p class="bottom-message">
-            Um processo é mais que “um programa em execução”: é o ambiente
-            isolado e gerenciado pelo kernel para executar um programa.
-          </p>
+          <div class="highlight-strip"><strong>PCB:</strong> modelo conceitual das informações administrativas. No Linux elas são distribuídas em estruturas do kernel, incluindo <code>task_struct</code>.</div>
+          <p class="simulation-note">No Linux, criar um processo e carregar um programa são etapas distintas: <code>execve()</code> substitui a imagem de um processo existente.</p>
         </article>
 
         <!-- Slide 4 -->
@@ -725,59 +611,26 @@ onBeforeUnmount(() => {
           <div class="slide-heading">
             <span class="eyebrow">PROCESSOS E THREADS</span>
             <h1>Recursos compartilhados e fluxos independentes</h1>
-            <p class="question">
-              O que o processo compartilha e o que cada thread precisa possuir?
-            </p>
+            <p class="question">O que pertence ao processo e o que pertence a cada thread?</p>
           </div>
-
           <div class="thread-layout">
             <div class="process-container">
-              <span class="container-title">Processo P</span>
-
+              <span class="container-title">Processo · unidade de recursos e isolamento</span>
               <div class="shared-area">
                 <strong>Recursos compartilhados</strong>
-                <div>
-                  <span>Espaço virtual</span>
-                  <span>Código</span>
-                  <span>Dados globais</span>
-                  <span>Área dinâmica</span>
-                  <span>Arquivos abertos</span>
-                </div>
+                <div><span>Espaço virtual</span><span>Código</span><span>Dados globais</span><span>Área dinâmica</span><span>Arquivos</span></div>
               </div>
-
               <div class="thread-cards">
-                <div class="thread-card">
-                  <strong>Thread 1</strong>
-                  <span>PC próprio</span>
-                  <span>Registradores próprios</span>
-                  <span>Pilha própria</span>
-                  <span>Estado próprio</span>
-                </div>
-
-                <div class="thread-card">
-                  <strong>Thread 2</strong>
-                  <span>PC próprio</span>
-                  <span>Registradores próprios</span>
-                  <span>Pilha própria</span>
-                  <span>Estado próprio</span>
-                </div>
+                <div class="thread-card"><strong>Thread 1</strong><span>Posição no código</span><span>Registradores</span><span>Pilha própria</span><span>Estado de execução</span></div>
+                <div class="thread-card"><strong>Thread 2</strong><span>Posição no código</span><span>Registradores</span><span>Pilha própria</span><span>Estado de execução</span></div>
               </div>
             </div>
-
             <aside class="panel explanation-panel">
-              <span class="panel-label">IDEIA PRINCIPAL</span>
-              <p>
-                O processo funciona como um contêiner lógico de recursos.
-                Threads são fluxos independentes de execução dentro dele.
-              </p>
-
-              <hr />
-
-              <p>
-                No laboratório, cada trabalhador possui essencialmente uma
-                thread principal. Assim, A, B e C representam fluxos de
-                execução diretamente comparáveis pelo escalonador.
-              </p>
+              <span class="panel-label">NO LINUX</span>
+              <p><strong>Threads</strong> são fluxos de execução que o kernel pode escalonar separadamente.</p>
+              <p>Threads do mesmo processo compartilham dados e precisam coordenar acessos. Uma pilha própria não é uma barreira absoluta entre elas.</p>
+              <p>Processos distintos podem se comunicar por pipes, sockets ou memória explicitamente compartilhada.</p>
+              <p>No laboratório, A e B são processos separados; cada worker possui sua thread principal.</p>
             </aside>
           </div>
         </article>
@@ -857,82 +710,38 @@ onBeforeUnmount(() => {
         <article v-else-if="slideAtual === 5" key="slide-6" class="slide">
           <div class="slide-heading">
             <span class="eyebrow">MEMÓRIA VIRTUAL</span>
-            <h1>Isolamento entre processos</h1>
-            <p class="question">
-              Como processos usam a mesma RAM sem sobrescrever os dados uns dos outros?
-            </p>
+            <h1>Do endereço virtual à RAM</h1>
+            <p class="question">Como processos diferentes podem usar o mesmo endereço virtual com segurança?</p>
           </div>
-
-          <div class="memory-layout">
-            <div class="virtual-process">
+          <div class="memory-diagram">
+            <section class="panel memory-example">
               <span class="panel-label">PROCESSO A</span>
-              <h2>Endereços virtuais</h2>
-
-              <div class="virtual-map">
-                <span>Código</span>
-                <span>Dados</span>
-                <span>Área dinâmica</span>
-                <span>Pilha</span>
-              </div>
-
-              <small>0x7fff...</small>
-            </div>
-
-            <div class="memory-arrow">
-              <strong>MMU</strong>
-              <span>tabelas de páginas</span>
-              <b>→</b>
-            </div>
-
-            <div class="physical-memory">
-              <span class="panel-label">RAM FÍSICA</span>
-              <h2>Frames</h2>
-
-              <div class="frames">
-                <span>Frame 24</span>
-                <span>Frame 47</span>
-                <span>Frame 93</span>
-                <span>Frame 108</span>
-              </div>
-            </div>
-
-            <div class="memory-arrow">
-              <strong>MMU</strong>
-              <span>tabelas de páginas</span>
-              <b>←</b>
-            </div>
-
-            <div class="virtual-process">
+              <strong>Endereço virtual 0x1000</strong>
+              <span>↓ tabela de páginas A</span><code>página virtual → frame 24</code>
+            </section>
+            <section class="panel mmu-example">
+              <span class="panel-label">CPU · MMU</span>
+              <strong>Traduz e verifica permissões</strong>
+              <p>O kernel configura os mapeamentos e mantém as tabelas.</p>
+            </section>
+            <section class="panel memory-example">
               <span class="panel-label">PROCESSO B</span>
-              <h2>Endereços virtuais</h2>
-
-              <div class="virtual-map">
-                <span>Código</span>
-                <span>Dados</span>
-                <span>Área dinâmica</span>
-                <span>Pilha</span>
-              </div>
-
-              <small>0x7fff...</small>
-            </div>
+              <strong>Endereço virtual 0x1000</strong>
+              <span>↓ tabela de páginas B</span><code>página virtual → frame 47</code>
+            </section>
           </div>
-
-          <div class="three-columns">
-            <div class="panel">
-              <span class="panel-label">ENDEREÇO VIRTUAL</span>
-              <p>Cada processo enxerga seu próprio espaço lógico de memória.</p>
+          <div class="panel ram-example">
+            <span class="panel-label">RAM FÍSICA · FRAMES ILUSTRATIVOS</span>
+            <div class="ram-frames">
+              <div><small>Frame 03</small><strong>Kernel</strong></div>
+              <div class="ram-a"><small>Frame 24</small><strong>Processo A</strong></div>
+              <div><small>Frame 32</small><strong>Outros dados</strong></div>
+              <div class="ram-b"><small>Frame 47</small><strong>Processo B</strong></div>
+              <div><small>Frame 80</small><strong>Livre / outro uso</strong></div>
             </div>
-
-            <div class="panel">
-              <span class="panel-label">ENDEREÇO FÍSICO</span>
-              <p>A RAM é organizada em frames físicos compartilhados pelo sistema.</p>
-            </div>
-
-            <div class="panel">
-              <span class="panel-label">ISOLAMENTO</span>
-              <p>A MMU aplica o mapeamento definido pelo kernel para cada processo.</p>
-            </div>
+            <p>O mesmo endereço virtual pode apontar para frames diferentes. Alguns mapeamentos podem ser compartilhados intencionalmente.</p>
           </div>
+          <p class="simulation-note">O desenho é ilustrativo: a RAM não é dividida em faixas fixas e contíguas para cada processo ou para o kernel.</p>
         </article>
 
         <!-- Slide 7 -->
@@ -940,113 +749,65 @@ onBeforeUnmount(() => {
           <div class="slide-heading">
             <span class="eyebrow">ALOCAÇÃO DINÂMICA</span>
             <h1>Do malloc às páginas de memória</h1>
-            <p class="question">
-              Quando um programa solicita 400 bytes, quem fornece essa memória?
-            </p>
+            <p class="question">Como uma solicitação de 400 bytes se relaciona com páginas e frames?</p>
           </div>
-
           <div class="allocation-layout">
             <section class="panel code-panel">
               <span class="panel-label">PROGRAMA C</span>
-              <pre><code>int *vetor = malloc(
-  100 * sizeof(*vetor)
-);
+              <pre><code>int *vetor = malloc(100 * sizeof(*vetor));
 
-vetor[0] = 10;
-
-free(vetor);</code></pre>
-
-              <p>
-                Em uma arquitetura comum, <code>int</code> ocupa 4 bytes:
-                <strong>100 × 4 = 400 bytes</strong>.
-              </p>
+if (vetor != NULL) {
+  vetor[0] = 10;
+  free(vetor);
+}</code></pre>
+              <p>Se <code>int</code> ocupar 4 bytes, a solicitação é de 400 bytes. <code>malloc()</code> pode falhar e retornar <code>NULL</code>.</p>
             </section>
-
             <section class="panel allocator-panel">
-              <span class="panel-label">ALOCADOR DA BIBLIOTECA C</span>
-              <h2>Área dinâmica</h2>
-
-              <div class="page-view">
-                <span class="page-title">Página virtual de 4 KiB</span>
-                <div class="page-segments">
-                  <span class="metadata">metadados</span>
-                  <span class="allocation">vetor: 400 B</span>
-                  <span class="free-space">espaço livre</span>
-                </div>
+              <span class="panel-label">ALOCADOR · KERNEL · RAM</span>
+              <ol>
+                <li>A biblioteca procura um bloco virtual disponível.</li>
+                <li>Se necessário, solicita mais memória ao kernel.</li>
+                <li>O programa recebe um endereço virtual; frames podem ser associados sob demanda.</li>
+              </ol>
+              <span class="panel-label">EXEMPLO · PÁGINAS DE 4 KiB</span>
+              <div class="pages-illustration">
+                <div><span>Página virtual 1</span><strong>256 bytes</strong></div>
+                <div><span>Página virtual 2</span><strong>144 bytes</strong></div>
               </div>
-
-              <p>
-                O alocador divide páginas já disponíveis em blocos menores para
-                atender chamadas como <code>malloc()</code>.
-              </p>
+              <p>Exemplo ilustrativo: o bloco contínuo de 400 bytes atravessa duas páginas, que podem apontar para frames diferentes.</p>
             </section>
           </div>
-
-          <div class="bottom-message">
-            <strong>malloc()</strong> entrega um bloco lógico ao programa.
-            <strong>O kernel administra páginas</strong>, não cada variável ou
-            bloco individual criado pelo código C.
-          </div>
+          <div class="highlight-strip"><strong>free():</strong> libera o bloco para o alocador; isso não garante devolução imediata ao kernel.</div>
+          <p class="simulation-note">Uma página cheia não obriga nova solicitação ao kernel; o alocador pode usar outra região disponível ou um bloco que atravesse páginas.</p>
         </article>
 
         <!-- Slide 8 -->
         <article v-else-if="slideAtual === 7" key="slide-8" class="slide">
           <div class="slide-heading">
             <span class="eyebrow">PROTEÇÃO DE MEMÓRIA</span>
-            <h1>Falhas de página e violações de acesso</h1>
-            <p class="question">
-              O que ocorre quando uma thread tenta acessar um endereço de memória?
-            </p>
+            <h1>Proteção e falhas de página</h1>
+            <p class="question">O que acontece quando uma thread acessa um endereço virtual?</p>
           </div>
-
-          <div class="decision-tree">
-            <div class="tree-node start-node">
-              <code>vetor[0] = 10</code>
-              <span>tentativa de acesso</span>
-            </div>
-
-            <div class="tree-arrow">↓</div>
-
-            <div class="tree-node mmu-node">
-              <strong>MMU consulta a tabela de páginas</strong>
-              <span>o endereço virtual é válido e permitido?</span>
-            </div>
-
-            <div class="tree-branches">
-              <div class="branch">
-                <span class="branch-label success">Válido e residente</span>
-                <div class="tree-arrow">↓</div>
-                <div class="tree-node success-node">
-                  <strong>Acesso realizado</strong>
-                  <span>a instrução continua</span>
-                </div>
-              </div>
-
-              <div class="branch">
-                <span class="branch-label warning">Válido, mas ausente da RAM</span>
-                <div class="tree-arrow">↓</div>
-                <div class="tree-node warning-node">
-                  <strong>Falha de página</strong>
-                  <span>kernel mapeia ou busca a página</span>
-                </div>
-              </div>
-
-              <div class="branch">
-                <span class="branch-label danger">Inválido ou sem permissão</span>
-                <div class="tree-arrow">↓</div>
-                <div class="tree-node danger-node">
-                  <strong>Violação de acesso</strong>
-                  <span>normalmente SIGSEGV</span>
-                </div>
-              </div>
-            </div>
+          <div class="three-columns protection-cases">
+            <section class="panel">
+              <span class="panel-label">1 · ACESSO PERMITIDO</span><h2>Página presente</h2>
+              <p>A MMU traduz o endereço e verifica as permissões. O acesso prossegue.</p>
+            </section>
+            <section class="panel">
+              <span class="panel-label">2 · PÁGINA AUSENTE</span><h2>Falha tratável</h2>
+              <p>Uma falha de página transfere o controle ao kernel, que pode providenciar o mapeamento ou buscar os dados.</p>
+            </section>
+            <section class="panel">
+              <span class="panel-label">3 · ACESSO INVÁLIDO</span><h2>Violação de acesso</h2>
+              <p>O kernel pode enviar <strong>SIGSEGV</strong>: sinal que, por padrão, encerra o processo.</p>
+            </section>
           </div>
-
-          <div class="highlight-strip">
-            Uma falha de página pode ser normal. Uma violação de proteção não é
-            uma “alocação inválida detectada pelo malloc”, mas uma violação no
-            mapeamento ou nas permissões de memória.
+          <div class="comparison-grid protection-responsibilities">
+            <section class="panel"><span class="panel-label">HARDWARE + KERNEL</span><p>A CPU e a MMU verificam tradução e permissões; o kernel configura os mapeamentos e trata as falhas.</p></section>
+            <section class="panel"><span class="panel-label">THREADS + PROGRAMA</span><p>Threads do mesmo processo compartilham o espaço virtual. O programa precisa respeitar limites e sincronizar dados compartilhados.</p></section>
           </div>
+          <p class="bottom-message">Uma falha de página pode ser resolvida. Já um acesso fora de um objeto pode corromper dados sem gerar SIGSEGV, se a página continuar acessível.</p>
+          <p class="simulation-note">Quando precisa aguardar um evento, uma tarefa pode deixar a CPU para outra tarefa pronta.</p>
         </article>
 
         <!-- Slide 9 -->
@@ -1055,11 +816,16 @@ free(vetor);</code></pre>
             <span class="eyebrow">CICLO DE VIDA</span>
             <h1>Estados de execução de uma tarefa</h1>
             <p class="question">
-              Como uma tarefa deixa a CPU, aguarda um evento e volta a executar?
+              Em sistemas multiprogramáveis, várias tarefas podem estar prontas; a política de escalonamento define os critérios para escolher qual receberá a CPU.
             </p>
           </div>
 
           <div class="state-simulation">
+            <div class="state-mode-selector" role="group" aria-label="Política da simulação">
+              <button type="button" :class="{ active: modoEstados === 'fcfs' }" :aria-pressed="modoEstados === 'fcfs'" @click="modoEstados = 'fcfs'">Não preemptivo · FCFS</button>
+              <button type="button" :class="{ active: modoEstados === 'rr' }" :aria-pressed="modoEstados === 'rr'" @click="modoEstados = 'rr'">Preemptivo · Round Robin</button>
+            </div>
+            <p class="simulation-note">Uma vCPU: A pronta precisa de 6 ms; B pronta precisa de 4 ms; C já está em espera, desperta aos 2 ms e precisa de 1 ms. No Round Robin, a fatia é 2 ms.</p>
             <div class="simulation-header">
               <div>
                 <span class="panel-label">SIMULAÇÃO AUTOMÁTICA</span>
@@ -1068,7 +834,7 @@ free(vetor);</code></pre>
               </div>
 
               <span class="simulation-progress">
-                {{ faseEstado + 1 }} / {{ fasesEstados.length }}
+                {{ faseAtual.tempo }} ms · evento {{ faseEstado + 1 }} / {{ fasesEstados.length }}
               </span>
             </div>
 
@@ -1094,42 +860,42 @@ free(vetor);</code></pre>
               <path
                 d="M240 120 H320"
                 class="state-arrow"
-                :class="{ 'arrow-active': faseAtual.transicao === 'admissao' }"
+                :class="{ 'arrow-active': faseAtual.transicoes.includes('admissao') }"
                 marker-end="url(#arrowhead)"
               />
 
               <path
                 d="M530 120 H640"
                 class="state-arrow"
-                :class="{ 'arrow-active': faseAtual.transicao === 'despacho' }"
+                :class="{ 'arrow-active': faseAtual.transicoes.includes('despacho') }"
                 marker-end="url(#arrowhead)"
               />
 
               <path
                 d="M790 175 V265"
                 class="state-arrow"
-                :class="{ 'arrow-active': faseAtual.transicao === 'espera' }"
+                :class="{ 'arrow-active': faseAtual.transicoes.includes('espera') }"
                 marker-end="url(#arrowhead)"
               />
 
               <path
                 d="M640 320 H425 V170"
                 class="state-arrow"
-                :class="{ 'arrow-active': faseAtual.transicao === 'despertar' }"
+                :class="{ 'arrow-active': faseAtual.transicoes.includes('despertar') }"
                 marker-end="url(#arrowhead)"
               />
 
               <path
                 d="M700 170 V220 H480 V170"
                 class="state-arrow"
-                :class="{ 'arrow-active': faseAtual.transicao === 'preempcao' }"
+                :class="{ 'arrow-active': faseAtual.transicoes.includes('preempcao') }"
                 marker-end="url(#arrowhead)"
               />
 
               <path
                 d="M890 120 H950"
                 class="state-arrow"
-                :class="{ 'arrow-active': faseAtual.transicao === 'termino' }"
+                :class="{ 'arrow-active': faseAtual.transicoes.includes('termino') }"
                 marker-end="url(#arrowhead)"
               />
 
@@ -1166,6 +932,10 @@ free(vetor);</code></pre>
               </g>
             </svg>
 
+            <div class="state-current">
+              <span>vCPU 0: <strong>{{ Object.keys(faseAtual.tarefas).find((nome) => faseAtual.tarefas[nome] === 'execucao') ?? 'ociosa' }}</strong></span>
+              <span>Fila de prontas: <strong>{{ faseAtual.fila.length ? faseAtual.fila.join(' → ') : 'vazia' }}</strong></span>
+            </div>
             <div class="process-state-cards">
               <div
                 v-for="processo in ['A', 'B', 'C']"
@@ -1178,6 +948,12 @@ free(vetor);</code></pre>
               </div>
             </div>
 
+            <div class="state-timeline">
+              <span v-for="(intervalo, indice) in intervalosEstados[modoEstados]" :key="indice"
+                :style="{ flex: intervalo.fim - intervalo.inicio, backgroundColor: corProcesso(intervalo.nome), opacity: faseAtual.tempo >= intervalo.fim ? 1 : (faseAtual.tempo >= intervalo.inicio ? 0.7 : 0.25) }">
+                {{ intervalo.nome }} · {{ intervalo.inicio }}–{{ intervalo.fim }}
+              </span>
+            </div>
             <div class="simulation-controls" aria-label="Controles da simulação">
               <button type="button" @click="mudarFaseEstado(-1)" :disabled="faseEstado === 0">Anterior</button>
               <button v-if="simulacaoAtiva" type="button" @click="pararSimulacaoEstados">Pausar</button>
@@ -1187,8 +963,7 @@ free(vetor);</code></pre>
             </div>
 
             <p class="simulation-note">
-              Simulação didática: representa eventos típicos, não uma amostra
-              real coletada pelo pidstat.
+              Simulação didática: sem outras tarefas ou custo de troca. No Round Robin, C entra na fila antes de A retornar no instante 2 ms. Não preemptivo não significa ausência de interrupções. O relógio visual é independente do tempo simulado.
             </p>
           </div>
         </article>
@@ -1216,8 +991,8 @@ free(vetor);</code></pre>
               <div class="queue-processes">
                 <span class="process-a">A</span>
                 <span class="process-b">B</span>
-                <span class="process-c muted">C em espera</span>
               </div>
+              <small>C está em espera e não disputa a CPU.</small>
             </div>
 
             <div class="flow-arrow">→</div>
@@ -1236,6 +1011,8 @@ free(vetor);</code></pre>
             </div>
           </div>
 
+          <div class="highlight-strip"><strong>Critério:</strong> o que avaliar · <strong>Política:</strong> regra de escolha · <strong>Despacho:</strong> iniciar ou retomar a tarefa escolhida.</div>
+          <h2 class="card-group-title">Políticas de escalonamento</h2>
           <div class="policy-grid compact-policy-grid">
             <button
               v-for="politica in politicas"
@@ -1263,92 +1040,55 @@ free(vetor);</code></pre>
               >
                 <div class="policy-dialog-header">
                   <div>
-                    <span class="panel-label">POLÍTICA DE ESCALONAMENTO</span>
+                    <span class="panel-label">{{ politicaSelecionada.preempcao ? 'POLÍTICA DE ESCALONAMENTO' : 'CRITÉRIO OU MÉTRICA' }}</span>
                     <h2 id="policy-title">{{ politicaSelecionada.nome }}</h2>
                   </div>
                   <button ref="botaoFecharPolitica" type="button" aria-label="Fechar" @click="fecharPolitica">×</button>
                 </div>
                 <dl>
                   <dt>Como funciona</dt><dd>{{ politicaSelecionada.funcionamento }}</dd>
-                  <dt>Preempção</dt><dd>{{ politicaSelecionada.preempcao }}</dd>
+                  <template v-if="politicaSelecionada.preempcao"><dt>Preempção</dt><dd>{{ politicaSelecionada.preempcao }}</dd></template>
                   <dt>Exemplo</dt><dd>{{ politicaSelecionada.exemplo }}</dd>
-                  <dt>Vantagem</dt><dd>{{ politicaSelecionada.vantagem }}</dd>
+                  <template v-if="politicaSelecionada.vantagem"><dt>Vantagem</dt><dd>{{ politicaSelecionada.vantagem }}</dd></template>
                   <dt>Limitação</dt><dd>{{ politicaSelecionada.limitacao }}</dd>
                 </dl>
               </section>
             </div>
           </Teleport>
 
+          <h2 class="card-group-title">Critérios e métricas</h2>
           <div class="metrics-row">
-            <span>Tempo de resposta</span>
-            <span>Tempo de espera</span>
-            <span>Tempo de retorno</span>
-            <span>Vazão</span>
-            <span>Utilização</span>
-            <span>Justiça</span>
+            <button v-for="criterio in criterios" :key="criterio.nome" type="button" aria-haspopup="dialog" @click="abrirPolitica(criterio)">{{ criterio.nome }}</button>
           </div>
         </article>
 
         <!-- Slide 11 -->
         <article v-else-if="slideAtual === 10" key="slide-11" class="slide">
           <div class="slide-heading">
-            <span class="eyebrow">POLÍTICAS</span>
-            <h1>A mesma carga, decisões diferentes</h1>
-            <p class="question">Como a política altera a ordem de execução e a espera?</p>
+            <span class="eyebrow">ESCALONAMENTO JUSTO</span>
+            <h1>Onde CFS e EEVDF se encaixam?</h1>
+            <p class="question">Como os escalonadores do laboratório compartilham a CPU?</p>
           </div>
-
-          <div class="shared-scenario">
-            <span class="panel-label">CENÁRIO HIPOTÉTICO · UMA VCPU</span>
-            <div>
-              <span class="process-a">A: pronta em 0 ms · precisa de 6 ms</span>
-              <span class="process-b">B: pronta em 0 ms · precisa de 4 ms</span>
-              <span class="process-c">C: pronta em 2 ms · precisa de 1 ms</span>
+          <div class="scheduler-overview">
+            <div class="overview-level">Sistema de tempo compartilhado</div>
+            <span class="overview-arrow">↓</span>
+            <div class="overview-level">Escalonamento justo e proporcional no Linux</div>
+            <span class="overview-arrow">↓</span>
+            <div class="comparison-grid scheduler-comparison">
+              <section class="panel">
+                <span class="panel-label">CFS · LINUX 6.5</span>
+                <h2>Tempo virtual</h2>
+                <p>Favorece, em linhas gerais, a tarefa pronta com menor <code>vruntime</code>.</p>
+              </section>
+              <section class="panel">
+                <span class="panel-label">EEVDF · LINUX 7</span>
+                <h2>Elegibilidade e prazo</h2>
+                <p>Verifica o <code>lag</code> e escolhe pelo menor prazo virtual entre as tarefas elegíveis.</p>
+              </section>
             </div>
           </div>
-          <p class="simulation-note">A está à frente de B na fila inicial. Supomos as rajadas conhecidas e nenhuma outra tarefa.</p>
-
-          <div class="comparison-grid policy-comparison">
-            <section class="panel">
-              <span class="panel-label">FCFS · NÃO PREEMPTIVO</span>
-              <h2>C aguarda sua vez</h2>
-              <div class="timeline-with-times">
-                <div class="timeline-blocks">
-                  <span class="process-a" style="flex: 6">A</span>
-                  <span class="process-b" style="flex: 4">B</span>
-                  <span class="process-c" style="flex: 1">C</span>
-                </div>
-                <div class="timeline-labels">
-                  <span style="left: 0%">0</span><span style="left: 54.545%">6</span>
-                  <span style="left: 90.909%">10</span><span style="left: 100%">11 ms</span>
-                </div>
-              </div>
-              <p>A conclui aos 6 ms; B executa em seguida. C espera de 2 até 10 ms.</p>
-            </section>
-
-            <section class="panel">
-              <span class="panel-label">SRTF · PREEMPTIVO</span>
-              <h2>C interrompe A</h2>
-              <div class="timeline-with-times">
-                <div class="timeline-blocks">
-                  <span class="process-a" style="flex: 2">A</span>
-                  <span class="process-c" style="flex: 1">C</span>
-                  <span class="process-a" style="flex: 4">A</span>
-                  <span class="process-b" style="flex: 4">B</span>
-                </div>
-                <div class="timeline-labels">
-                  <span style="left: 0%">0</span><span style="left: 18.182%">2</span>
-                  <span style="left: 27.273%">3</span><span style="left: 63.636%">7</span>
-                  <span style="left: 100%">11 ms</span>
-                </div>
-              </div>
-              <p>Aos 2 ms, C precisa de 1 ms e A ainda precisa de 4 ms. C executa primeiro; no empate seguinte, A continua.</p>
-            </section>
-          </div>
-
-          <div class="highlight-strip">
-            O mesmo conjunto de tarefas pode ter tempos de espera diferentes conforme a política.
-          </div>
-          <p class="simulation-note">SRTF depende de conhecer ou estimar a duração das próximas rajadas. As linhas do tempo são didáticas, não medições do laboratório.</p>
+          <div class="highlight-strip">Ambos são preemptivos. O <code>nice</code> influencia o peso e a participação proporcional esperada; não são uma simples fila Round Robin.</div>
+          <p class="simulation-note">Os valores reais dependem também das tarefas concorrentes e da configuração do sistema.</p>
         </article>
 
         <!-- Slide 12 -->
@@ -2322,6 +2062,10 @@ while (tempo_decorrido &lt; duracao) {
             A referência “45% / 45% / 10%” não é uma garantia. A CPU efetiva de C
             depende de sua latência ao despertar, preempções e duração real das pausas.
           </p>
+          <p class="simulation-note">
+            C usa nanosleep() para simular espera: não realiza I/O real. Usar menos CPU durante as pausas não indica, por si só, prejuízo causado pelo escalonador.
+            Os valores de %CPU e %wait do pidstat não medem diretamente a latência entre o despertar e a retomada de C.
+          </p>
         </article>
 
         <!-- Slide 27 -->
@@ -2724,6 +2468,7 @@ while (tempo_decorrido &lt; duracao) {
 }
 
 .panel {
+  padding: 1.1rem;
   border: 1px solid var(--presentation-border);
   border-radius: 20px;
   background: linear-gradient(145deg, rgba(20, 33, 25, 0.95), rgba(11, 23, 16, 0.95));
@@ -3741,12 +3486,20 @@ g.active .state-node {
   margin-top: 1rem;
 }
 
-.metrics-row span {
+.metrics-row button {
   padding: 0.45rem 0.65rem;
   border: 1px solid var(--presentation-border);
   border-radius: 999px;
   color: var(--presentation-muted);
   font-size: 0.74rem;
+  background: var(--presentation-surface);
+  cursor: pointer;
+}
+
+.metrics-row button:hover,
+.metrics-row button:focus-visible {
+  border-color: var(--presentation-accent);
+  color: var(--presentation-text);
 }
 
 .shared-scenario {
@@ -4320,6 +4073,7 @@ th {
 
 .file-tree {
   padding: 1.1rem;
+  margin-top: 1rem;
 }
 
 .experiment-config {
@@ -4909,7 +4663,179 @@ th {
   font-size: 0.8rem;
 }
 
+.diagram-explainer ol,
+.allocator-panel ol {
+  display: grid;
+  gap: 0.65rem;
+  padding-left: 1.25rem;
+  color: var(--presentation-muted);
+  line-height: 1.5;
+}
+
+.memory-diagram {
+  display: grid;
+  grid-template-columns: 1fr 0.9fr 1fr;
+  gap: 1rem;
+}
+
+.memory-example,
+.mmu-example {
+  display: grid;
+  align-content: start;
+  gap: 0.65rem;
+}
+
+.memory-example > span:not(.panel-label) {
+  color: var(--presentation-muted);
+  font-size: 0.8rem;
+}
+
+.memory-example .panel-label,
+.mmu-example .panel-label {
+  margin: 0;
+}
+
+.ram-example {
+  margin-top: 1rem;
+}
+
+.ram-frames {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.6rem;
+}
+
+.ram-frames > div {
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.75rem;
+  border: 1px solid var(--presentation-border);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.ram-frames small {
+  color: var(--presentation-muted);
+}
+
+.ram-a { border-color: rgba(96, 165, 250, 0.6) !important; }
+.ram-b { border-color: rgba(245, 158, 11, 0.6) !important; }
+
+.pages-illustration {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.7rem;
+}
+
+.pages-illustration > div {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.85rem;
+  border: 1px solid var(--presentation-border-strong);
+  border-radius: 10px;
+  background: rgba(30, 215, 96, 0.08);
+}
+
+.pages-illustration span {
+  color: var(--presentation-muted);
+  font-size: 0.78rem;
+}
+
+.protection-cases h2,
+.protection-responsibilities p {
+  margin-top: 0.5rem;
+}
+
+.state-mode-selector,
+.state-current {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.7rem;
+  margin-bottom: 0.75rem;
+}
+
+.state-mode-selector button {
+  padding: 0.55rem 0.75rem;
+  border: 1px solid var(--presentation-border-strong);
+  border-radius: 9px;
+  color: var(--presentation-text);
+  background: var(--presentation-surface);
+  cursor: pointer;
+}
+
+.state-mode-selector button.active {
+  border-color: var(--presentation-accent);
+  color: var(--presentation-accent);
+  background: rgba(30, 215, 96, 0.1);
+}
+
+.state-current {
+  color: var(--presentation-muted);
+  font-size: 0.85rem;
+}
+
+.state-current strong {
+  color: var(--presentation-text);
+}
+
+.state-timeline {
+  display: flex;
+  overflow: hidden;
+  min-height: 34px;
+  margin-top: 0.85rem;
+  border-radius: 8px;
+}
+
+.state-timeline span {
+  display: grid;
+  min-width: 0;
+  place-items: center;
+  color: #07100c;
+  font-size: 0.7rem;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.card-group-title {
+  margin: 1.2rem 0 0.5rem;
+  color: var(--presentation-text);
+  font-size: 1rem;
+}
+
+.scheduler-overview {
+  display: grid;
+  justify-items: center;
+  gap: 0.6rem;
+}
+
+.overview-level {
+  width: min(650px, 100%);
+  padding: 0.9rem;
+  border: 1px solid var(--presentation-border);
+  border-radius: 12px;
+  text-align: center;
+  background: var(--presentation-surface);
+}
+
+.overview-arrow {
+  color: var(--presentation-accent);
+  font-size: 1.25rem;
+}
+
+.scheduler-overview .scheduler-comparison {
+  width: 100%;
+}
+
 @media (max-width: 900px) {
+  .memory-diagram {
+    grid-template-columns: 1fr;
+  }
+
+  .ram-frames {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .calculos-simulacao-layout {
     grid-template-columns: 1fr;
   }

@@ -16,8 +16,8 @@ BINARIO="$PROJETO_DIR/bin/cpu_bound_worker"
 DURACAO="${1:-10}"
 CENARIO="exp2"
 VCPU=0
-NICE_A=0
-NICE_B=10
+NICE_A="${NICE_A:-0}"
+NICE_B="${NICE_B:-10}"
 
 KERNEL="$(uname -r)"
 
@@ -48,12 +48,35 @@ if [[ ! -f "$FONTE" ]]; then
     exit 1
 fi
 
-for comando in gcc taskset pidstat awk nice; do
+for comando in gcc taskset pidstat awk nice ps; do
     if ! command -v "$comando" > /dev/null 2>&1; then
         echo "Erro: comando não encontrado: $comando"
         exit 1
     fi
 done
+
+# Validar prioridades antes de iniciar os processos.
+validar_nice() {
+    local nome="$1" valor="$2"
+
+    if ! [[ "$valor" =~ ^-?(0|[1-9][0-9]?)$ ]] || (( valor < -20 || valor > 19 )); then
+        echo "Erro: $nome deve ser um inteiro entre -20 e 19." >&2
+        exit 1
+    fi
+}
+
+validar_nice "NICE_A" "$NICE_A"
+validar_nice "NICE_B" "$NICE_B"
+
+# nice -n aplica um ajuste relativo ao valor herdado pelo script.
+NICE_SCRIPT="$(ps -o ni= -p "$$")"
+NICE_SCRIPT="${NICE_SCRIPT//[[:space:]]/}"
+if ! [[ "$NICE_SCRIPT" =~ ^-?[0-9]+$ ]]; then
+    echo "Erro: nao foi possivel consultar o nice do script." >&2
+    exit 1
+fi
+AJUSTE_A=$(( NICE_A - NICE_SCRIPT ))
+AJUSTE_B=$(( NICE_B - NICE_SCRIPT ))
 
 AMOSTRAS=$(( DURACAO - 2 ))
 
@@ -86,6 +109,24 @@ registrar_status() {
 EOF
 
     mv "$temporario" "$STATUS_ARQUIVO"
+}
+
+# Confirma o nice efetivo: nice pode executar o programa mesmo quando
+# nao consegue reduzir a prioridade numerica por falta de permissao.
+verificar_nice() {
+    local nome="$1" pid="$2" esperado="$3" atual
+
+    if ! atual="$(ps -o ni= -p "$pid")"; then
+        echo "Erro: nao foi possivel consultar o processo $nome (PID $pid)." >&2
+        return 1
+    fi
+    atual="${atual//[[:space:]]/}"
+    if [[ ! "$atual" =~ ^-?[0-9]+$ ]] || (( atual != esperado )); then
+        echo "Erro: processo $nome (PID $pid): nice esperado $esperado, obtido ${atual:-indisponivel}." >&2
+        echo "Para diminuir o nice, verifique permissoes CAP_SYS_NICE ou o limite RLIMIT_NICE." >&2
+        return 1
+    fi
+    echo "Processo $nome: PID $pid | nice efetivo $atual"
 }
 
 encerrar_processos() {
@@ -167,11 +208,11 @@ VCPUS="$(nproc)"
 
 echo "[2/3] Iniciando processos A e B na vCPU $VCPU..."
 
-taskset -c "$VCPU" nice -n "$NICE_A" "$BINARIO" A "$DURACAO" \
+taskset -c "$VCPU" nice -n "$AJUSTE_A" "$BINARIO" A "$DURACAO" \
     > "$RESULTADO_DIR/processo_A.log" 2>&1 &
 PID_A=$!
 
-taskset -c "$VCPU" nice -n "$NICE_B" "$BINARIO" B "$DURACAO" \
+taskset -c "$VCPU" nice -n "$AJUSTE_B" "$BINARIO" B "$DURACAO" \
     > "$RESULTADO_DIR/processo_B.log" 2>&1 &
 PID_B=$!
 
@@ -184,6 +225,9 @@ echo "Processo A: PID $PID_A | nice $NICE_A"
 echo "Processo B: PID $PID_B | nice $NICE_B"
 
 sleep 0.2
+
+verificar_nice "A" "$PID_A" "$NICE_A"
+verificar_nice "B" "$PID_B" "$NICE_B"
 
 {
     taskset -pc "$PID_A"
@@ -221,7 +265,7 @@ MEDIA_B="$(obter_media "$PID_B")"
 
 if [[ -z "$MEDIA_A" || -z "$MEDIA_B" ]]; then
     echo "Erro: não foi possível extrair as médias do pidstat."
-    exit 1
+    marcar_falha 1
 fi
 
 read -r CPU_A ESPERA_A <<< "$MEDIA_A"

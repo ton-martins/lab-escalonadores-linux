@@ -1,0 +1,15 @@
+execucao_id=20261125_214403
+experimento=exp1
+escalonador=eevdf
+inicio=2026-11-25T21:44:03-03:00
+kernel=7.0.0-43-generic
+duracao_segundos=10
+vcpu_alvo=0
+processo_a=cpu_bound
+processo_b=cpu_bound
+nice_a=0
+nice_b=0
+vcpus_disponiveis=4
+pid_a=30981
+pid_b=30982
+fim=2026-11-25T21:44:13-03:00
